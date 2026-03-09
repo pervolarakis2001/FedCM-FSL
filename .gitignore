@@ -1,0 +1,4 @@
+kaggle.json
+data/
+config.py
+**/__pycache__/

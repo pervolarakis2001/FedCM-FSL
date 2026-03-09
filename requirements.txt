@@ -1,0 +1,12 @@
+--extra-index-url https://download.pytorch.org/whl/cu124
+
+torch
+torchvision
+kagglehub
+Pillow
+numpy
+matplotlib
+pandas
+rasterio
+scikit-image
+scikit-learn

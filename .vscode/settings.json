@@ -1,0 +1,6 @@
+{
+    "python.defaultInterpreterPath": "/home/vscode/miniconda3/envs/fedcm_env/bin/python",
+    "python.terminal.activateEnvironment": true,
+    "python.languageServer": "Jedi",
+    "python.analysis.typeCheckingMode": "off"
+}

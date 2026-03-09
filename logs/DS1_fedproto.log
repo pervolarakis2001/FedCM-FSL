@@ -1,0 +1,4 @@
+nohup: ignoring input
+Using device: cuda
+Train: 6,737  Val: 4,806  Test: 2,924
+Built 5 S2 clients, 5 S1 clients
