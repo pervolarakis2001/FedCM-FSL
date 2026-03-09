@@ -30,7 +30,7 @@ def save_checkpoint(
     best_state: dict,
 ):
     """Save mid-run state so a crash doesn't lose everything."""
-    path = CKPT_DIR / f"{label}_ckpt.pkl"
+    path = CKPT_DIR / f"{label}_ckpt.pt"
     payload = {
         "label":       label,
         "round":       round_idx,
@@ -45,7 +45,7 @@ def save_checkpoint(
 
 def load_checkpoint(label: str):
     """Return checkpoint dict, or None if not found."""
-    path = CKPT_DIR / f"{label}_ckpt.pkl"
+    path = CKPT_DIR / f"{label}_ckpt.pt"
     if path.exists():
         with open(path, "rb") as f:
             ckpt = pickle.load(f)
@@ -54,28 +54,25 @@ def load_checkpoint(label: str):
     return None
 
 
-# ──────────────────────────────────────────────
 # Per-experiment results
-# ──────────────────────────────────────────────
-
 def save_result(label: str, result: dict, results_dir: str = None):
     """
     Persist a result dict into its own experiment subfolder.
 
-    Layout:  <results_dir>/<label>/<label>.pkl
+    Layout:  <results_dir>/<label>/<label>.pt
     """
     base = Path(results_dir) if results_dir else RESULTS_DIR
     exp_dir = _experiment_dir(base, label)
-    path = exp_dir / f"{label}.pkl"
+    path = exp_dir / f"{label}.pt"
     with open(path, "wb") as f:
         pickle.dump(result, f)
-    print(f"  ✓  Result saved → {path}")
+    print(f"Result saved → {path}")
 
 
 def load_result(label: str, results_dir: str = None):
     """Load a single experiment result, or return None if absent."""
     base = Path(results_dir) if results_dir else RESULTS_DIR
-    path = base / label / f"{label}.pkl"
+    path = base / label / f"{label}.pt"
     if path.exists():
         with open(path, "rb") as f:
             return pickle.load(f)
@@ -92,9 +89,8 @@ def load_all_results(prefix: str = "", results_dir: str = None) -> dict:
     base = Path(results_dir) if results_dir else RESULTS_DIR
     all_res = {}
 
-    # Each experiment lives in its own subfolder: <base>/<label>/<label>.pkl
-    for pkl_path in sorted(base.glob("*/*.pkl")):
-        label = pkl_path.stem          # folder name == file stem == label
+    for pkl_path in sorted(base.glob("*/*.pt")):
+        label = pkl_path.stem          
         if prefix and not label.startswith(prefix):
             continue
         with open(pkl_path, "rb") as f:

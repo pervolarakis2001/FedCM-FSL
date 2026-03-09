@@ -2,4 +2,4 @@ kaggle.json
 data/
 config.py
 **/__pycache__/
-.vscode
+.vscode/
