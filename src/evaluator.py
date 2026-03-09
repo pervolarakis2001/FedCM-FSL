@@ -82,6 +82,7 @@ def extract_modal_prototypes(clients: list, device) -> dict:
     proto_sum = {}
     proto_count = {}
     for client in clients:
+        client.model.to(device)
         client.model.eval()
         for cls_idx, indices in client.dataset.class_images.items():
             all_feats = []
@@ -97,6 +98,8 @@ def extract_modal_prototypes(clients: list, device) -> dict:
                 proto_count[cls_idx] = 0
             proto_sum[cls_idx] += proto
             proto_count[cls_idx] += 1
+        client.model.cpu()
+        torch.cuda.empty_cache()
 
     return {k: proto_sum[k] / proto_count[k] for k in proto_sum}
 
