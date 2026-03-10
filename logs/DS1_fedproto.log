@@ -49,3 +49,30 @@ Built 5 S2 clients, 5 S1 clients
 [FedProto_DS1_5shot] Round  20/20  loss=2788.1285  S2=41.1%  S1=38.0%  best=44.9%  (897s)
 
 [FedProto_DS1_5shot] Loading best model (val_avg=44.87%) for test eval
+Test Results for FedProto_DS1_5shot: {'S2': {'mean': 54.8377790649732, 'ci': 0.6939032790842736, 'str': '54.84 ± 0.69'}, 'S1': {'mean': 43.30444544305404, 'ci': 0.5886565086693067, 'str': '43.30 ± 0.59'}}
+  ✓  Result saved → /home/vscode/FedCM-FSL/output/results/FedProto_DS1_5shot/FedProto_DS1_5shot.pkl
+
+============================================================
+RESULTS SUMMARY
+============================================================
+FedProto_DS1_1shot
+  S2 test: 42.79 ± 0.79
+  S1 test: 37.24 ± 0.69
+FedProto_DS1_5shot
+  S2 test: 54.84 ± 0.69
+  S1 test: 43.30 ± 0.59
+  ✓  Saved → /home/vscode/FedCM-FSL/output/figures/convergence_DS1_1shot_avg.pdf
+  ✓  Saved → /home/vscode/FedCM-FSL/output/figures/convergence_DS1_5shot_avg.pdf
+  ✓  Saved → /home/vscode/FedCM-FSL/output/figures/proto_dist_over_rounds.pdf
+Traceback (most recent call last):
+  File "/home/vscode/FedCM-FSL/main.py", line 369, in <module>
+    main()
+  File "/home/vscode/FedCM-FSL/main.py", line 365, in main
+    plot_results(results, scenario=args.scenario, method=args.method)
+  File "/home/vscode/FedCM-FSL/main.py", line 243, in plot_results
+    plot_per_class_proto_distance(
+  File "/home/vscode/FedCM-FSL/src/utils/visualiser.py", line 232, in plot_per_class_proto_distance
+    l2_n = [torch.norm(ps2_n[c].float() - ps1_n[c].float()).item() for c in common]
+  File "/home/vscode/FedCM-FSL/src/utils/visualiser.py", line 232, in <listcomp>
+    l2_n = [torch.norm(ps2_n[c].float() - ps1_n[c].float()).item() for c in common]
+NameError: name 'torch' is not defined
