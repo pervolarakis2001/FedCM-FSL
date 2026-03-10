@@ -6,6 +6,7 @@ import matplotlib.patches as mpatches
 from matplotlib.lines import Line2D
 from sklearn.manifold import TSNE
 import numpy as np
+import torch
 import os
 import shutil
 from pathlib import Path
