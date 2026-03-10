@@ -3,3 +3,5 @@ data/
 config.py
 **/__pycache__/
 .vscode/
+*.pkl
+*.pt
