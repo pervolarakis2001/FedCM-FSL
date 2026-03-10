@@ -59,11 +59,11 @@ def save_result(label: str, result: dict, results_dir: str = None):
     """
     Persist a result dict into its own experiment subfolder.
 
-    Layout:  <results_dir>/<label>/<label>.pt
+    Layout:  <results_dir>/<label>/<label>.pkl
     """
     base = Path(results_dir) if results_dir else RESULTS_DIR
     exp_dir = _experiment_dir(base, label)
-    path = exp_dir / f"{label}.pt"
+    path = exp_dir / f"{label}.pkl"
     with open(path, "wb") as f:
         pickle.dump(result, f)
     print(f"Result saved → {path}")
@@ -72,7 +72,7 @@ def save_result(label: str, result: dict, results_dir: str = None):
 def load_result(label: str, results_dir: str = None):
     """Load a single experiment result, or return None if absent."""
     base = Path(results_dir) if results_dir else RESULTS_DIR
-    path = base / label / f"{label}.pt"
+    path = base / label / f"{label}.pkl"
     if path.exists():
         with open(path, "rb") as f:
             return pickle.load(f)
@@ -89,7 +89,7 @@ def load_all_results(prefix: str = "", results_dir: str = None) -> dict:
     base = Path(results_dir) if results_dir else RESULTS_DIR
     all_res = {}
 
-    for pkl_path in sorted(base.glob("*/*.pt")):
+    for pkl_path in sorted(base.glob("*/*.pkl")):
         label = pkl_path.stem          
         if prefix and not label.startswith(prefix):
             continue
