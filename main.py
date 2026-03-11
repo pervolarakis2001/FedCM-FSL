@@ -90,7 +90,7 @@ def parse_args():
     parser.add_argument(
         "--val-every",
         type=int,
-        default=1,
+        default=4,
         help="Validate every N rounds (federated mode only)",
     )
     parser.add_argument(

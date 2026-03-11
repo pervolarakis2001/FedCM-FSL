@@ -92,6 +92,7 @@ class ProtoNet(nn.Module):
         dists = torch.cdist(q_feat, prototypes).pow(2)
         return -dists, prototypes
 
+    # In ProtoNet.train_episode(self):
     def train_episode(
         self, s_x, s_y, q_x, q_y, n_way, true_classes=None, global_protos=None, lam=0.1
     ):
@@ -99,22 +100,21 @@ class ProtoNet(nn.Module):
         loss = F.cross_entropy(logits, q_y)
 
         if global_protos is not None and lam > 0 and true_classes is not None:
-            matched_global_protos = []
-            for true_class in true_classes:
+            matched_local = []
+            matched_global = []
+
+            for i, true_class in enumerate(true_classes):
                 true_class_item = true_class.item()
-                if true_class_item in global_protos:
-                    matched_global_protos.append(global_protos[true_class_item])
-                else:
+                if true_class_item not in global_protos:
+                    continue
+                matched_local.append(local_protos[i])
+                matched_global.append(global_protos[true_class_item])
 
-                    matched_global_protos.append(torch.zeros_like(local_protos[0]))
-
-            matched_global_protos = torch.stack(matched_global_protos).to(
-                local_protos.device
-            )
-
-            # Calculate MSE between the local prototypes and their EXACT global matches
-            loss_reg = F.mse_loss(local_protos, matched_global_protos)
-            loss = loss + lam * loss_reg
+            if len(matched_local) > 0:
+                matched_local = torch.stack(matched_local)
+                matched_global = torch.stack(matched_global).to(local_protos.device)
+                loss_reg = F.mse_loss(matched_local, matched_global)
+                loss = loss + lam * loss_reg
 
         acc = (logits.argmax(1) == q_y).float().mean().item() * 100
         return loss, acc, local_protos

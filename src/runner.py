@@ -2,12 +2,12 @@ import torch
 import pandas as pd
 from config import (
     BEN_COUNTRIES,
-    META_TRAIN_CLASSES,
-    META_VAL_CLASSES,
-    BAD_PATCHES,
-    META_TEST_CLASSES,
-    Q_QUERY,
-    N_WAY,
+    BEN_META_TRAIN_CLASSES,
+    BEN_META_VAL_CLASSES,
+    BEN_BAD_PATCHES,
+    BEN_META_TEST_CLASSES,
+    BEN_Q_QUERY,
+    BEN_N_WAY,
 )
 from src.datasets.dataset_s1 import (
     BigEarthNetS1Dataset,
@@ -47,25 +47,25 @@ class ExperimentRunner:
                 drop=True
             )
 
-            train_df = meta[meta["primary_label"].isin(META_TRAIN_CLASSES)].reset_index(
-                drop=True
-            )
+            train_df = meta[
+                meta["primary_label"].isin(BEN_META_TRAIN_CLASSES)
+            ].reset_index(drop=True)
 
-            val_df = meta[meta["primary_label"].isin(META_VAL_CLASSES)].reset_index(
+            val_df = meta[meta["primary_label"].isin(BEN_META_VAL_CLASSES)].reset_index(
                 drop=True
             )
             val_df = val_df[
-                ~val_df["patch_id"].isin(BAD_PATCHES["S2"])
-                & ~val_df["s1_name"].isin(BAD_PATCHES["S1"])
+                ~val_df["patch_id"].isin(BEN_BAD_PATCHES["S2"])
+                & ~val_df["s1_name"].isin(BEN_BAD_PATCHES["S1"])
             ].reset_index(drop=True)
 
-            test_df = meta[meta["primary_label"].isin(META_TEST_CLASSES)].reset_index(
-                drop=True
-            )
+            test_df = meta[
+                meta["primary_label"].isin(BEN_META_TEST_CLASSES)
+            ].reset_index(drop=True)
 
-            assert not set(META_TRAIN_CLASSES) & set(META_VAL_CLASSES)
-            assert not set(META_TRAIN_CLASSES) & set(META_TEST_CLASSES)
-            assert not set(META_VAL_CLASSES) & set(META_TEST_CLASSES)
+            assert not set(BEN_META_TRAIN_CLASSES) & set(BEN_META_VAL_CLASSES)
+            assert not set(BEN_META_TRAIN_CLASSES) & set(BEN_META_TEST_CLASSES)
+            assert not set(BEN_META_VAL_CLASSES) & set(BEN_META_TEST_CLASSES)
 
             print(
                 f"Train: {len(train_df):,}  Val: {len(val_df):,}  Test: {len(test_df):,}"
@@ -155,8 +155,8 @@ class ExperimentRunner:
                     test_datasets=self.test_ds,
                     n_episodes=self.args.n_episodes,
                     k_shot=k_shot,
-                    q_query=Q_QUERY,
-                    n_way=N_WAY,
+                    q_query=BEN_Q_QUERY,
+                    n_way=BEN_N_WAY,
                     device=self.device,
                 )
                 results[label] = result
@@ -186,12 +186,12 @@ class ExperimentRunner:
                 s1_encoder=s1_encoder,
                 split_encoder=use_split,
                 device=self.device,
-                n_way=N_WAY,
+                n_way=BEN_N_WAY,
                 k_shot=k_shot,
-                q_query=Q_QUERY,
+                q_query=BEN_Q_QUERY,
             )
 
-            server, shared_body, _ = FederatedFactory.get_components(
+            server, _, shared_body = FederatedFactory.get_components(
                 self.args, s2_clients, s1_clients, self.device
             )
 
@@ -206,8 +206,8 @@ class ExperimentRunner:
                 n_rounds=self.args.n_rounds,
                 n_episodes=self.args.n_episodes,
                 k_shot=k_shot,
-                q_query=Q_QUERY,
-                n_way=N_WAY,
+                q_query=BEN_Q_QUERY,
+                n_way=BEN_N_WAY,
                 device=self.device,
                 track_protos=(self.args.method == "FedProto"),
                 val_every=self.args.val_every,

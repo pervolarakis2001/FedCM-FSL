@@ -22,10 +22,11 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from src.models.protonet import ProtoNet,  SplitEncoder
+from src.models.protonet import ProtoNet, SplitEncoder
 from src.utils.episode_sampler import EpisodeSampler
 from src.datasets.dataset_s1 import BigEarthNetS1Dataset
 from src.datasets.dataset_s2 import BigEarthNetS2Dataset
+
 
 class BaseEpisodicClient:
     def __init__(
@@ -42,7 +43,7 @@ class BaseEpisodicClient:
     ):
         self.client_id = client_id
         self.dataset = dataset
-        self.model = model  # kept on CPU; moved to device only during local_train
+        self.model = model.to(device)
         self.device = device
         self.n_way = n_way
 
@@ -70,30 +71,43 @@ class BaseEpisodicClient:
             self.model.encoder.load_state_dict(global_weights)
 
     def local_train(self, n_episodes=100, **kwargs):
-        """The base training loop. Subclasses can override or pass specific kwargs."""
-        self.model.to(self.device)
         self.model.train()
         losses, accs = [], []
+        proto_accumulator = {}  # ← cls_idx → list of proto tensors
+        proto_counts = {}
 
         for s_x, s_y, q_x, q_y, true_classes in self.sampler.episodes(n_episodes):
             s_x, s_y = s_x.to(self.device), s_y.to(self.device)
             q_x, q_y = q_x.to(self.device), q_y.to(self.device)
 
             self.optimizer.zero_grad()
-
-            # We defer the actual forward/loss logic to a method that subclasses can override
-            loss, acc = self._compute_loss(
+            loss, acc, local_protos = self._compute_loss(
                 s_x, s_y, q_x, q_y, true_classes=true_classes, **kwargs
             )
-
             loss.backward()
+            torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=10.0)
             self.optimizer.step()
+
+            # ← accumulate running average, no extra forward pass needed
+            if local_protos is not None:
+                for i, true_class in enumerate(true_classes):
+                    cls = true_class.item()
+                    proto = local_protos[i].detach().cpu()
+                    if cls not in proto_accumulator:
+                        proto_accumulator[cls] = proto
+                        proto_counts[cls] = 1
+                    else:
+                        # running average to avoid storing all tensors in memory
+                        n = proto_counts[cls]
+                        proto_accumulator[cls] = (
+                            proto_accumulator[cls] * n + proto
+                        ) / (n + 1)
+                        proto_counts[cls] += 1
 
             losses.append(loss.item())
             accs.append(acc)
 
-        self.model.cpu()
-        torch.cuda.empty_cache()
+        self._accumulated_protos = proto_accumulator  # ← save for extract_prototypes
         return np.mean(losses), np.mean(accs)
 
     def _compute_loss(self, s_x, s_y, q_x, q_y, **kwargs):
@@ -104,41 +118,58 @@ class FedAvgClient(BaseEpisodicClient):
     def _compute_loss(self, s_x, s_y, q_x, q_y, true_classes=None, **kwargs):
         # Standard FedAvg ignores prototype regularization (lam=0.0)
         loss, acc, _ = self.model.train_episode(
-            s_x, s_y, q_x, q_y, self.n_way, 
-            true_classes=true_classes, global_protos=None, lam=0.0
+            s_x,
+            s_y,
+            q_x,
+            q_y,
+            self.n_way,
+            true_classes=true_classes,
+            global_protos=None,
+            lam=0.0,
         )
         return loss, acc
-    
+
+
 class FedProtoClient(BaseEpisodicClient):
-    def _compute_loss(self, s_x, s_y, q_x, q_y, true_classes=None, global_protos=None, lam=0.1, **kwargs):
-        # FedProto utilizes the global prototypes and lambda
-        loss, acc, _ = self.model.train_episode(
-            s_x, s_y, q_x, q_y, self.n_way,
-            true_classes=true_classes, global_protos=global_protos, lam=lam
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._accumulated_protos = {}
+
+    def local_train(self, n_episodes=100, global_protos=None, lam=0.1, **kwargs):
+        return super().local_train(
+            n_episodes, global_protos=global_protos, lam=lam, **kwargs
         )
-        return loss, acc
 
-    @torch.no_grad()
+    def _compute_loss(
+        self,
+        s_x,
+        s_y,
+        q_x,
+        q_y,
+        true_classes=None,
+        global_protos=None,
+        lam=0.1,
+        **kwargs,
+    ):
+        loss, acc, local_protos = self.model.train_episode(
+            s_x,
+            s_y,
+            q_x,
+            q_y,
+            self.n_way,
+            true_classes=true_classes,
+            global_protos=global_protos,
+            lam=lam,
+        )
+        return (
+            loss,
+            acc,
+            local_protos,
+        )  # ← pass protos up to the accumulator in local_train
+
     def extract_prototypes(self):
-        """Extracts class prototypes. Run this after local_train."""
-        self.model.to(self.device)
-        self.model.eval()
-        prototypes = {}
-        for class_idx, indices in self.dataset.class_images.items():
-            all_features = []
-            for i in range(0, len(indices), 32):
-                batch_indices = indices[i:i + 32]
-                imgs = torch.stack([self.dataset[idx][0] for idx in batch_indices]).to(self.device)
-                features = self.model.encode(imgs)
-                all_features.append(features)
+        return self._accumulated_protos  # ← 0 seconds, already done
 
-            all_features = torch.cat(all_features, dim=0)
-            prototypes[class_idx] = all_features.mean(dim=0).cpu()
-
-        self.model.cpu()
-        torch.cuda.empty_cache()
-        return prototypes
-    
 
 def min_samples_per_class(df: pd.DataFrame, min_required: int = None) -> int:
     counts = df.groupby("primary_label").size()
@@ -146,6 +177,7 @@ def min_samples_per_class(df: pd.DataFrame, min_required: int = None) -> int:
         # Return count of viable classes, not the minimum
         return (counts >= min_required).sum()
     return counts.min()
+
 
 def filter_sparse_classes(df: pd.DataFrame, min_samples: int) -> pd.DataFrame:
     """Drop classes that don't have enough samples to fill one episode."""
@@ -155,41 +187,68 @@ def filter_sparse_classes(df: pd.DataFrame, min_samples: int) -> pd.DataFrame:
     if dropped:
         print(f"  ⚠ Dropping {len(dropped)} sparse classes: {dropped}")
     return df[df["primary_label"].isin(viable_classes)].reset_index(drop=True)
-    
-    
-def build_clients(partitions, s2_root, s1_root, s2_encoder, s1_encoder,
-                  ClientClass, device, split_encoder=False,
-                  n_way=5, k_shot=1, q_query=15, lr=1e-3):
+
+
+def build_clients(
+    partitions,
+    s2_root,
+    s1_root,
+    s2_encoder,
+    s1_encoder,
+    ClientClass,
+    device,
+    split_encoder=False,
+    n_way=5,
+    k_shot=1,
+    q_query=15,
+    lr=1e-3,
+):
     min_required = k_shot + q_query
     s2_clients, s1_clients = [], []
     for p in partitions:
         clean_df = filter_sparse_classes(p.df, min_samples=min_required)
         if clean_df["primary_label"].nunique() < n_way:
-            print(f" Skipping client {p.client_id}")
+            print(f"  ✗ Skipping client {p.client_id}")
             continue
         if p.has_s2:
             if split_encoder:
-                enc = SplitEncoder(in_channels=10, shared_body=copy.deepcopy(s2_encoder))
+                enc = SplitEncoder(
+                    in_channels=10, shared_body=copy.deepcopy(s2_encoder)
+                )
             else:
-                enc = copy.deepcopy(s2_encoder)  
+                enc = copy.deepcopy(s2_encoder)
             model = ProtoNet(enc, feat_dim=512)
-            s2_clients.append(ClientClass(
-                client_id=f"client{p.client_id}_S2",
-                dataset=BigEarthNetS2Dataset(clean_df, s2_root),
-                model=model, device=device,
-                n_way=n_way, k_shot=k_shot, q_query=q_query, lr=lr, modality="S2",
-            ))
+            s2_clients.append(
+                ClientClass(
+                    client_id=f"client{p.client_id}_S2",
+                    dataset=BigEarthNetS2Dataset(clean_df, s2_root),
+                    model=model,
+                    device=device,
+                    n_way=n_way,
+                    k_shot=k_shot,
+                    q_query=q_query,
+                    lr=lr,
+                    modality="S2",
+                )
+            )
         if p.has_s1:
             if split_encoder:
                 enc = SplitEncoder(in_channels=2, shared_body=copy.deepcopy(s1_encoder))
             else:
-                enc = copy.deepcopy(s1_encoder) 
+                enc = copy.deepcopy(s1_encoder)
             model = ProtoNet(enc, feat_dim=512)
-            s1_clients.append(ClientClass(
-                client_id=f"client{p.client_id}_S1",
-                dataset=BigEarthNetS1Dataset(clean_df, s1_root),
-                model=model, device=device,
-                n_way=n_way, k_shot=k_shot, q_query=q_query, lr=lr, modality="S1",
-            ))
+            s1_clients.append(
+                ClientClass(
+                    client_id=f"client{p.client_id}_S1",
+                    dataset=BigEarthNetS1Dataset(clean_df, s1_root),
+                    model=model,
+                    device=device,
+                    n_way=n_way,
+                    k_shot=k_shot,
+                    q_query=q_query,
+                    lr=lr,
+                    modality="S1",
+                )
+            )
     print(f"Built {len(s2_clients)} S2 clients, {len(s1_clients)} S1 clients")
     return s2_clients, s1_clients

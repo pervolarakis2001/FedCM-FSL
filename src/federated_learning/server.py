@@ -86,17 +86,19 @@ class BaseServer:
 
     def train_round(self, n_episodes=100):
         """The universal federated learning loop."""
+        # Select a subset of clients
         num_to_select = max(1, int(self.fraction * len(self.clients)))
         selected_clients = random.sample(self.clients, num_to_select)
 
+        # Broadcast global state (implemented by subclasses)
         self._broadcast(selected_clients)
 
-        # Train locally and collect updates
+        # Train locally and collect updates (implemented by subclasses)
         updates, round_losses, round_accs = self._collect_updates(
             selected_clients, n_episodes
         )
 
-        # Aggregate updates
+        # Aggregate updates (implemented by subclasses)
         self._aggregate(updates)
 
         avg_loss = sum(round_losses) / len(round_losses) if round_losses else 0
