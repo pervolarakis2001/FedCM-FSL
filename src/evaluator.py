@@ -1,4 +1,3 @@
-
 import os
 import torch
 from torch import nn, optim
@@ -10,11 +9,12 @@ import torch.nn.functional as F
 import matplotlib.pyplot as plt
 import os
 import shutil
-from src.models.protonet import ProtoNet,  SplitEncoder
+from src.models.protonet import ProtoNet, SplitEncoder
 from src.utils.episode_sampler import EpisodeSampler
 from src.datasets.dataset_s1 import BigEarthNetS1Dataset
 from src.datasets.dataset_s2 import BigEarthNetS2Dataset
-import  pickle, copy, time
+import pickle, copy, time
+
 
 def build_eval_encoders(shared_body, device, s2_clients=None, s1_clients=None):
     encoders = {}
@@ -57,7 +57,12 @@ def evaluate_with_ci(
         model.eval()
         dataset = datasets[modality]
         sampler = EpisodeSampler(
-            dataset, n_way=n_way, k_shot=k_shot, q_query=q_query, seed=seed, is_train=False
+            dataset,
+            n_way=n_way,
+            k_shot=k_shot,
+            q_query=q_query,
+            seed=seed,
+            is_train=False,
         )
         accs = []
         for s_x, s_y, q_x, q_y, _ in sampler.episodes(n_episodes):
@@ -75,31 +80,37 @@ def evaluate_with_ci(
 
 @torch.no_grad()
 def extract_modal_prototypes(clients: list, device) -> dict:
-    """
-    Collect per-class prototypes from all clients of the same modality.
-    Returns {class_idx: mean_prototype_tensor (cpu)}.
-    """
     proto_sum = {}
     proto_count = {}
     for client in clients:
-        client.model.to(device)
-        client.model.eval()
-        for cls_idx, indices in client.dataset.class_images.items():
-            all_feats = []
-            for i in range(0, len(indices), 32):
-                batch = indices[i : i + 32]
-                imgs = torch.stack([client.dataset[j][0] for j in batch]).to(device)
-                feats = client.model.encode(imgs).cpu()
-                all_feats.append(feats)
-            proto = torch.cat(all_feats).mean(0)
+        # Use accumulated protos if available (free), else fall back to re-scan
+        if hasattr(client, "_accumulated_protos") and client._accumulated_protos:
+            client_protos = client._accumulated_protos
+        else:
+            # fallback: but apply the transform this time
+            client.model.eval()
+            client_protos = {}
+            for cls_idx, indices in client.dataset.class_images.items():
+                all_feats = []
+                for i in range(0, len(indices), 32):
+                    batch = indices[i : i + 32]
+                    imgs = torch.stack(
+                        [
+                            client.dataset.support_transform(
+                                client.dataset[j][0]
+                            )  # ← transform applied
+                            for j in batch
+                        ]
+                    ).to(device)
+                    all_feats.append(client.model.encode(imgs).cpu())
+                client_protos[cls_idx] = torch.cat(all_feats).mean(0)
 
+        for cls_idx, proto in client_protos.items():
             if cls_idx not in proto_sum:
                 proto_sum[cls_idx] = torch.zeros_like(proto)
                 proto_count[cls_idx] = 0
             proto_sum[cls_idx] += proto
             proto_count[cls_idx] += 1
-        client.model.cpu()
-        torch.cuda.empty_cache()
 
     return {k: proto_sum[k] / proto_count[k] for k in proto_sum}
 
