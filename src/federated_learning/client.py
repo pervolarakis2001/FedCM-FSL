@@ -56,6 +56,7 @@ class BaseEpisodicClient:
         )
 
         self.modality = modality
+        self._accumulated_protos = {}  # Initialize here once for all subclasses
 
     def get_weights(self):
         """Standard for FedAvg and others that share model parameters."""
@@ -73,7 +74,7 @@ class BaseEpisodicClient:
     def local_train(self, n_episodes=100, **kwargs):
         self.model.train()
         losses, accs = [], []
-        proto_accumulator = {}  # ← cls_idx → list of proto tensors
+        proto_accumulator = {}  # cls_idx -> list of proto tensors
         proto_counts = {}
 
         for s_x, s_y, q_x, q_y, true_classes in self.sampler.episodes(n_episodes):
@@ -88,7 +89,7 @@ class BaseEpisodicClient:
             torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=10.0)
             self.optimizer.step()
 
-            # ← accumulate running average, no extra forward pass needed
+            # Accumulate running average
             if local_protos is not None:
                 for i, true_class in enumerate(true_classes):
                     cls = true_class.item()
@@ -97,7 +98,6 @@ class BaseEpisodicClient:
                         proto_accumulator[cls] = proto
                         proto_counts[cls] = 1
                     else:
-                        # running average to avoid storing all tensors in memory
                         n = proto_counts[cls]
                         proto_accumulator[cls] = (
                             proto_accumulator[cls] * n + proto
@@ -107,16 +107,19 @@ class BaseEpisodicClient:
             losses.append(loss.item())
             accs.append(acc)
 
-        self._accumulated_protos = proto_accumulator  # ← save for extract_prototypes
+        self._accumulated_protos = proto_accumulator  # Save for extract_prototypes
         return np.mean(losses), np.mean(accs)
 
     def _compute_loss(self, s_x, s_y, q_x, q_y, **kwargs):
         raise NotImplementedError("Subclasses must define how to compute the loss.")
 
+    def extract_prototypes(self):
+        return self._accumulated_protos
+
 
 class FedAvgClient(BaseEpisodicClient):
     def _compute_loss(self, s_x, s_y, q_x, q_y, true_classes=None, **kwargs):
-        # Standard FedAvg ignores prototype regularization (lam=0.0)
+        # Standard FedAvg ignores prototype regularization
         loss, acc, _ = self.model.train_episode(
             s_x,
             s_y,
@@ -125,16 +128,38 @@ class FedAvgClient(BaseEpisodicClient):
             self.n_way,
             true_classes=true_classes,
             global_protos=None,
-            lam=0.0,
+            lam1=0.0,
+            lam2=0.0,
+            method="base",
+            temperature=0.0,
         )
-        return loss, acc
+        return loss, acc, None
+
+
+class LocalOnlyClient(BaseEpisodicClient):
+    """
+    Baseline client that trains purely on local data.
+    No prototype sharing, no weight aggregation, no server communication.
+    """
+
+    def _compute_loss(self, s_x, s_y, q_x, q_y, true_classes=None, **kwargs):
+        loss, acc, _ = self.model.train_episode(
+            s_x,
+            s_y,
+            q_x,
+            q_y,
+            self.n_way,
+            true_classes=true_classes,
+            global_protos=None,
+            lam1=0.0,
+            lam2=0.0,
+            method="base",
+            temperature=0.0,
+        )
+        return loss, acc, None  # No protos to accumulate
 
 
 class FedProtoClient(BaseEpisodicClient):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._accumulated_protos = {}
-
     def local_train(self, n_episodes=100, global_protos=None, lam=0.1, **kwargs):
         return super().local_train(
             n_episodes, global_protos=global_protos, lam=lam, **kwargs
@@ -159,16 +184,61 @@ class FedProtoClient(BaseEpisodicClient):
             self.n_way,
             true_classes=true_classes,
             global_protos=global_protos,
-            lam=lam,
+            lam1=lam,
+            lam2=0.0,
+            method="fed_proto",
+            temperature=0.0,
         )
-        return (
-            loss,
-            acc,
-            local_protos,
-        )  # ← pass protos up to the accumulator in local_train
+        return loss, acc, local_protos
 
-    def extract_prototypes(self):
-        return self._accumulated_protos  # ← 0 seconds, already done
+
+class FedCMFSLClient(BaseEpisodicClient):
+    def local_train(
+        self,
+        n_episodes=100,
+        global_protos=None,
+        lam1=0.1,
+        lam2=0.1,
+        temperature=0.07,
+        **kwargs,
+    ):
+        return super().local_train(
+            n_episodes,
+            global_protos=global_protos,
+            lam1=lam1,
+            lam2=lam2,
+            temperature=temperature,
+            **kwargs,
+        )
+
+    def _compute_loss(
+        self,
+        s_x,
+        s_y,
+        q_x,
+        q_y,
+        true_classes=None,
+        global_protos=None,
+        lam1=0.1,
+        lam2=0.1,
+        temperature=0.07,
+        **kwargs,
+    ):
+        # Changed method to "proposed" and correctly passed lam1, lam2, and temperature
+        loss, acc, local_protos = self.model.train_episode(
+            s_x,
+            s_y,
+            q_x,
+            q_y,
+            self.n_way,
+            true_classes=true_classes,
+            global_protos=global_protos,
+            lam1=lam1,
+            lam2=lam2,
+            method="ours",
+            temperature=temperature,
+        )
+        return loss, acc, local_protos
 
 
 def min_samples_per_class(df: pd.DataFrame, min_required: int = None) -> int:
@@ -177,16 +247,6 @@ def min_samples_per_class(df: pd.DataFrame, min_required: int = None) -> int:
         # Return count of viable classes, not the minimum
         return (counts >= min_required).sum()
     return counts.min()
-
-
-def filter_sparse_classes(df: pd.DataFrame, min_samples: int) -> pd.DataFrame:
-    """Drop classes that don't have enough samples to fill one episode."""
-    counts = df.groupby("primary_label").size()
-    viable_classes = counts[counts >= min_samples].index
-    dropped = set(counts.index) - set(viable_classes)
-    if dropped:
-        print(f"  ⚠ Dropping {len(dropped)} sparse classes: {dropped}")
-    return df[df["primary_label"].isin(viable_classes)].reset_index(drop=True)
 
 
 def build_clients(
@@ -206,7 +266,7 @@ def build_clients(
     min_required = k_shot + q_query
     s2_clients, s1_clients = [], []
     for p in partitions:
-        clean_df = filter_sparse_classes(p.df, min_samples=min_required)
+        clean_df = filter_sparse_classes(p.df, min_samples=k_shot + q_query)
         if clean_df["primary_label"].nunique() < n_way:
             print(f"  ✗ Skipping client {p.client_id}")
             continue
@@ -252,3 +312,34 @@ def build_clients(
             )
     print(f"Built {len(s2_clients)} S2 clients, {len(s1_clients)} S1 clients")
     return s2_clients, s1_clients
+
+
+def filter_sparse_classes(
+    df: pd.DataFrame,
+    label_col: str = "primary_label",
+    min_samples: int = 20,
+) -> pd.DataFrame:
+    """
+    Removes classes that have fewer than `min_samples` rows.
+
+    Parameters
+    ----------
+    df          : DataFrame to filter (a client's partition).
+    label_col   : Column holding the class label.
+    min_samples : Minimum number of samples a class must have to be kept.
+
+    Returns
+    -------
+    Filtered DataFrame with sparse classes removed.
+    """
+    counts = df[label_col].value_counts()
+    valid_classes = counts[counts >= min_samples].index
+    dropped = counts[counts < min_samples].index.tolist()
+
+    if dropped:
+        print(
+            f"  Dropping {len(dropped)} sparse class(es) "
+            f"(< {min_samples} samples): {dropped}"
+        )
+
+    return df[df[label_col].isin(valid_classes)].reset_index(drop=True)

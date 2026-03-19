@@ -21,7 +21,7 @@ from src.evaluator import (
 from src.utils.save import load_checkpoint, save_checkpoint, save_result
 from config import RESULTS_DIR
 
-PATIENCE_FEDERATED = 15
+PATIENCE_FEDERATED = 100
 
 
 def run_federated(
@@ -31,15 +31,15 @@ def run_federated(
     s1_clients: list,
     val_datasets: dict,
     test_datasets: dict,
-    shared_body=None,  # None for FedProto, nn.Module for FedAvg
+    shared_body=None,
     n_rounds: int = 50,
-    n_episodes: int = 100,
+    n_episodes: int = 10,
     k_shot: int = 1,
-    q_query: int = 12,
+    q_query: int = 15,
     n_way: int = 5,
     device: torch.device = None,
     track_protos: bool = False,
-    val_every: int = 1,
+    val_every: int = 4,
 ) -> dict:
 
     device = device or torch.device("cpu")
@@ -51,7 +51,7 @@ def run_federated(
     best_state = None
     no_improve = 0
 
-    history = {
+    history = {  # ← fixed indentation
         "round": [],
         "loss": [],
         "val_S2": [],
@@ -59,22 +59,24 @@ def run_federated(
         "val_avg": [],
         "val_S2_ci": [],
         "val_S1_ci": [],
+        "val_S2_per_client": [],
+        "val_S1_per_client": [],
         "proto_l2": [],
         "proto_cos": [],
         "proto_s2": {},
         "proto_s1": {},
     }
 
-    # ── Resume from checkpoint
+    # ── Resume from checkpoint ────────────────────────────────────────────────
     if ckpt is not None:
         start = ckpt["round"] + 1
         history = ckpt["history"]
         best_acc = ckpt["best_acc"]
         best_state = ckpt["best_state"]
+        no_improve = ckpt.get("no_improve", 0)  # ← persist across resume
         if not is_fedproto:
             shared_body.load_state_dict(ckpt["model_state"])
         else:
-            # Restore best client weights from checkpoint
             if best_state is not None:
                 server.global_protos = best_state["global_protos"]
                 for c in s2_clients:
@@ -82,7 +84,29 @@ def run_federated(
                 for c in s1_clients:
                     c.model.load_state_dict(best_state["s1_client_states"][c.client_id])
 
-    # ── Training loop
+    if best_state is None:
+        if not is_fedproto:
+            best_state = {
+                k: v.cpu().clone() for k, v in shared_body.state_dict().items()
+            }
+        else:
+            best_state = {
+                "global_protos": {},
+                "s2_client_states": {
+                    c.client_id: {
+                        k: v.cpu().clone() for k, v in c.model.state_dict().items()
+                    }
+                    for c in s2_clients
+                },
+                "s1_client_states": {
+                    c.client_id: {
+                        k: v.cpu().clone() for k, v in c.model.state_dict().items()
+                    }
+                    for c in s1_clients
+                },
+            }
+
+    # ── Training loop ─────────────────────────────────────────────────────────
     for r in range(start, n_rounds + 1):
         t0 = time.time()
         avg_loss = server.train_round(n_episodes=n_episodes)
@@ -91,7 +115,7 @@ def run_federated(
         history["round"].append(r)
         history["loss"].append(avg_loss)
 
-        # ── Validation
+        # ── Validation ───────────────────────────────────────────────────────
         if r % val_every == 0:
             eval_enc = build_eval_encoders(shared_body, device, s2_clients, s1_clients)
             val_m = evaluate_with_ci(
@@ -102,9 +126,11 @@ def run_federated(
                 k_shot=k_shot,
                 q_query=q_query,
                 n_way=n_way,
+                seed=r,  # ← different episodes each round, no data leakage
             )
-            s2_m = val_m.get("S2", {"mean": 0, "ci": 0})
-            s1_m = val_m.get("S1", {"mean": 0, "ci": 0})
+
+            s2_m = val_m.get("S2", {"mean": 0, "ci": 0, "per_client": []})
+            s1_m = val_m.get("S1", {"mean": 0, "ci": 0, "per_client": []})
             avg = (s2_m["mean"] + s1_m["mean"]) / 2
 
             history["val_S2"].append(s2_m["mean"])
@@ -112,11 +138,12 @@ def run_federated(
             history["val_avg"].append(avg)
             history["val_S2_ci"].append(s2_m["ci"])
             history["val_S1_ci"].append(s1_m["ci"])
+            history["val_S2_per_client"].append(s2_m["per_client"])
+            history["val_S1_per_client"].append(s1_m["per_client"])
 
             if avg > best_acc:
                 best_acc = avg
                 no_improve = 0
-                # ── Save best state: FedAvg vs FedProto
                 if not is_fedproto:
                     best_state = {
                         k: v.cpu().clone() for k, v in shared_body.state_dict().items()
@@ -141,14 +168,26 @@ def run_federated(
                     }
             else:
                 no_improve += val_every
+
+            # ── Early stopping ───────────────────────────────────────────────
+            if no_improve >= PATIENCE_FEDERATED:
+                print(
+                    f"[{label}] Early stopping at round {r} "
+                    f"(no improvement for {PATIENCE_FEDERATED} rounds)"
+                )
+                break
+
         else:
+            # Non-val round — pad history with None to keep list lengths aligned
             history["val_S2"].append(None)
             history["val_S1"].append(None)
             history["val_avg"].append(None)
             history["val_S2_ci"].append(None)
             history["val_S1_ci"].append(None)
+            history["val_S2_per_client"].append(None)
+            history["val_S1_per_client"].append(None)
 
-        # ── Prototype tracking
+        # ── Prototype tracking ────────────────────────────────────────────────
         if track_protos:
             ps2 = extract_modal_prototypes(s2_clients, device)
             ps1 = extract_modal_prototypes(s1_clients, device)
@@ -162,18 +201,18 @@ def run_federated(
             history["proto_l2"].append(None)
             history["proto_cos"].append(None)
 
-        # ── Print
+        # ── Print ─────────────────────────────────────────────────────────────
         s2_val = history["val_S2"][-1]
         s1_val = history["val_S1"][-1]
         print(
             f"[{label}] Round {r:>3}/{n_rounds}  "
             f"loss={avg_loss:.4f}  "
-            f"S2={f'{s2_val:.1f}%' if s2_val is not None else 'skip'}  "
-            f"S1={f'{s1_val:.1f}%' if s1_val is not None else 'skip'}  "
-            f"best={best_acc:.1f}%  ({elapsed:.0f}s)"
+            f"S2={f'{s2_val:.2f}%' if s2_val is not None else 'skip':>9}  "
+            f"S1={f'{s1_val:.2f}%' if s1_val is not None else 'skip':>9}  "
+            f"best={best_acc:.2f}%  no_improve={no_improve:>2}  ({elapsed:.0f}s)"
         )
 
-        # ── Checkpoint
+        # ── Checkpoint ────────────────────────────────────────────────────────
         save_checkpoint(
             label,
             r,
@@ -187,8 +226,8 @@ def run_federated(
             best_state=best_state,
         )
 
-    # ── Final test with BEST model
-    print(f"\n[{label}] Loading best model (val_avg={best_acc:.2f}%) for test eval")
+    # ── Final test with BEST model ────────────────────────────────────────────
+    print(f"\n[{label}] Loading best model (val_avg={best_acc:.2f}%) for final test")
     if not is_fedproto:
         shared_body.load_state_dict(best_state)
     else:
@@ -207,6 +246,7 @@ def run_federated(
         k_shot=k_shot,
         q_query=q_query,
         n_way=n_way,
+        seed=42,  # ← fixed seed: identical 600 tasks for ALL methods (fair comparison)
     )
 
     result = {
@@ -216,6 +256,6 @@ def run_federated(
         "best_state": best_state,
         "test": test_m,
     }
-    print(f"Test Results for {label}: {test_m}")
+    print(f"[{label}] Test → {test_m}")
     save_result(label, result)
     return result

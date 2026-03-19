@@ -27,8 +27,8 @@ def load_s2_patch(patch_dir: Path) -> torch.Tensor:
         matches = list(patch_dir.glob(f"*_{band}.tif"))
         if not matches:
             all_files = [f.name for f in sorted(patch_dir.iterdir())]
-            print(f"Band {band} not found in: {patch_dir.name}")
-            print(f"Files present: {all_files}")
+            print(f"✗ Band {band} not found in: {patch_dir.name}")
+            print(f"  Files present: {all_files}")
             raise FileNotFoundError(f"Band {band} missing in {patch_dir}")
         with rasterio.open(matches[0]) as src:
             arr = src.read(1).astype(np.float32)

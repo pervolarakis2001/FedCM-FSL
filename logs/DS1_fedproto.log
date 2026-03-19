@@ -2,11 +2,64 @@ nohup: ignoring input
 Initializing Experiment | Mode: federated | Scenario: DS1 | Device: cuda
 Train: 6,737  Val: 4,806  Test: 2,924
 Built 5 S2 clients, 5 S1 clients
-[FedProto_DS1_5shot] Round   1/50  loss=20.4145  S2=skip  S1=skip  best=0.0%  (459s)
-[FedProto_DS1_5shot] Round   2/50  loss=2.1808  S2=skip  S1=skip  best=0.0%  (454s)
-[FedProto_DS1_5shot] Round   3/50  loss=1.4231  S2=skip  S1=skip  best=0.0%  (452s)
-[FedProto_DS1_5shot] Round   4/50  loss=1.2564  S2=41.9%  S1=38.3%  best=40.1%  (446s)
-[FedProto_DS1_5shot] Round   5/50  loss=1.1426  S2=skip  S1=skip  best=40.1%  (451s)
-[FedProto_DS1_5shot] Round   6/50  loss=1.1012  S2=skip  S1=skip  best=40.1%  (445s)
-[FedProto_DS1_5shot] Round   7/50  loss=1.0867  S2=skip  S1=skip  best=40.1%  (444s)
-[FedProto_DS1_5shot] Round   8/50  loss=1.0449  S2=42.7%  S1=38.9%  best=40.8%  (453s)
+[FedProto_DS1_1shot] Round   1/50  loss=39.6359  S2=skip  S1=skip  best=0.0%  (357s)
+[FedProto_DS1_1shot] Round   2/50  loss=3.7243  S2=skip  S1=skip  best=0.0%  (352s)
+[FedProto_DS1_1shot] Round   3/50  loss=2.1231  S2=skip  S1=skip  best=0.0%  (350s)
+[FedProto_DS1_1shot] Round   4/50  loss=1.9587  S2=38.6%  S1=39.4%  best=39.0%  (349s)
+[FedProto_DS1_1shot] Round   5/50  loss=1.6539  S2=skip  S1=skip  best=39.0%  (346s)
+[FedProto_DS1_1shot] Round   6/50  loss=1.6224  S2=skip  S1=skip  best=39.0%  (347s)
+[FedProto_DS1_1shot] Round   7/50  loss=1.4806  S2=skip  S1=skip  best=39.0%  (346s)
+[FedProto_DS1_1shot] Round   8/50  loss=1.4246  S2=40.9%  S1=32.1%  best=39.0%  (345s)
+[FedProto_DS1_1shot] Round   9/50  loss=1.3976  S2=skip  S1=skip  best=39.0%  (352s)
+[FedProto_DS1_1shot] Round  10/50  loss=1.4166  S2=skip  S1=skip  best=39.0%  (352s)
+[FedProto_DS1_1shot] Round  11/50  loss=1.4413  S2=skip  S1=skip  best=39.0%  (353s)
+[FedProto_DS1_1shot] Round  12/50  loss=1.4928  S2=40.8%  S1=34.8%  best=39.0%  (346s)
+[FedProto_DS1_1shot] Round  13/50  loss=1.3702  S2=skip  S1=skip  best=39.0%  (341s)
+[FedProto_DS1_1shot] Round  14/50  loss=1.3446  S2=skip  S1=skip  best=39.0%  (349s)
+[FedProto_DS1_1shot] Round  15/50  loss=1.3392  S2=skip  S1=skip  best=39.0%  (350s)
+[FedProto_DS1_1shot] Round  16/50  loss=1.2952  S2=42.5%  S1=35.7%  best=39.1%  (349s)
+[FedProto_DS1_1shot] Round  17/50  loss=1.2781  S2=skip  S1=skip  best=39.1%  (346s)
+[FedProto_DS1_1shot] Round  18/50  loss=1.2887  S2=skip  S1=skip  best=39.1%  (346s)
+[FedProto_DS1_1shot] Round  19/50  loss=1.2571  S2=skip  S1=skip  best=39.1%  (344s)
+[FedProto_DS1_1shot] Round  20/50  loss=1.2434  S2=39.8%  S1=36.1%  best=39.1%  (351s)
+[FedProto_DS1_1shot] Round  21/50  loss=1.2425  S2=skip  S1=skip  best=39.1%  (348s)
+[FedProto_DS1_1shot] Round  22/50  loss=1.2527  S2=skip  S1=skip  best=39.1%  (348s)
+[FedProto_DS1_1shot] Round  23/50  loss=1.2371  S2=skip  S1=skip  best=39.1%  (343s)
+[FedProto_DS1_1shot] Round  24/50  loss=1.2374  S2=40.4%  S1=33.5%  best=39.1%  (346s)
+[FedProto_DS1_1shot] Round  25/50  loss=1.2238  S2=skip  S1=skip  best=39.1%  (354s)
+[FedProto_DS1_1shot] Round  26/50  loss=1.2402  S2=skip  S1=skip  best=39.1%  (357s)
+[FedProto_DS1_1shot] Round  27/50  loss=1.3122  S2=skip  S1=skip  best=39.1%  (352s)
+[FedProto_DS1_1shot] Round  28/50  loss=1.2417  S2=37.2%  S1=35.5%  best=39.1%  (358s)
+[FedProto_DS1_1shot] Round  29/50  loss=1.3160  S2=skip  S1=skip  best=39.1%  (354s)
+[FedProto_DS1_1shot] Round  30/50  loss=1.2870  S2=skip  S1=skip  best=39.1%  (354s)
+[FedProto_DS1_1shot] Round  31/50  loss=1.2224  S2=skip  S1=skip  best=39.1%  (346s)
+[FedProto_DS1_1shot] Round  32/50  loss=1.2269  S2=41.5%  S1=36.7%  best=39.1%  (351s)
+[FedProto_DS1_1shot] Round  33/50  loss=1.2442  S2=skip  S1=skip  best=39.1%  (359s)
+[FedProto_DS1_1shot] Round  34/50  loss=1.2287  S2=skip  S1=skip  best=39.1%  (359s)
+[FedProto_DS1_1shot] Round  35/50  loss=1.2044  S2=skip  S1=skip  best=39.1%  (361s)
+[FedProto_DS1_1shot] Round  36/50  loss=1.2026  S2=39.0%  S1=36.6%  best=39.1%  (358s)
+[FedProto_DS1_1shot] Round  37/50  loss=1.2016  S2=skip  S1=skip  best=39.1%  (363s)
+[FedProto_DS1_1shot] Round  38/50  loss=1.1745  S2=skip  S1=skip  best=39.1%  (362s)
+[FedProto_DS1_1shot] Round  39/50  loss=1.1999  S2=skip  S1=skip  best=39.1%  (360s)
+[FedProto_DS1_1shot] Round  40/50  loss=1.2308  S2=39.7%  S1=35.5%  best=39.1%  (358s)
+[FedProto_DS1_1shot] Round  41/50  loss=1.1944  S2=skip  S1=skip  best=39.1%  (357s)
+[FedProto_DS1_1shot] Round  42/50  loss=1.1830  S2=skip  S1=skip  best=39.1%  (372s)
+[FedProto_DS1_1shot] Round  43/50  loss=1.1789  S2=skip  S1=skip  best=39.1%  (366s)
+[FedProto_DS1_1shot] Round  44/50  loss=1.1737  S2=39.8%  S1=38.5%  best=39.1%  (365s)
+[FedProto_DS1_1shot] Round  45/50  loss=1.1811  S2=skip  S1=skip  best=39.1%  (365s)
+[FedProto_DS1_1shot] Round  46/50  loss=1.1877  S2=skip  S1=skip  best=39.1%  (365s)
+[FedProto_DS1_1shot] Round  47/50  loss=1.1700  S2=skip  S1=skip  best=39.1%  (364s)
+[FedProto_DS1_1shot] Round  48/50  loss=1.1925  S2=39.9%  S1=35.6%  best=39.1%  (364s)
+[FedProto_DS1_1shot] Round  49/50  loss=1.1551  S2=skip  S1=skip  best=39.1%  (361s)
+[FedProto_DS1_1shot] Round  50/50  loss=1.1657  S2=skip  S1=skip  best=39.1%  (359s)
+
+[FedProto_DS1_1shot] Loading best model (val_avg=39.13%) for test eval
+Test Results for FedProto_DS1_1shot: {'S2': {'mean': 42.67222440739473, 'ci': 0.7826300348390487, 'str': '42.67 ± 0.78'}, 'S1': {'mean': 38.761113261183105, 'ci': 0.7066560661462385, 'str': '38.76 ± 0.71'}}
+Result saved → /home/vscode/FedCM-FSL/output/results/FedProto_DS1_1shot/FedProto_DS1_1shot.pkl
+
+============================================================
+                    EXPERIMENT COMPLETE                     
+============================================================
+ID: FedProto_DS1_1shot
+S2 Accuracy: 42.67 ± 0.78
+S1 Accuracy: 38.76 ± 0.71

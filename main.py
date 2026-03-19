@@ -54,13 +54,13 @@ def parse_args():
     )
     parser.add_argument(
         "--method",
-        choices=["FedProto", "FedAvg"],
+        choices=["FedProto", "FedAvg", "FedCMFSL"],
         default="FedProto",
         help="Federated method (ignored for centralized mode)",
     )
     parser.add_argument(
         "--scenario",
-        choices=["DS1", "DS2", "DS3", "DS4", "DS5"],
+        choices=["IID", "Non-IID"],
         required=True,
         help="Data distribution scenario",
     )
@@ -78,19 +78,19 @@ def parse_args():
     parser.add_argument(
         "--n-rounds",
         type=int,
-        default=50,
+        default=100,
         help="Number of federated rounds (federated mode only)",
     )
     parser.add_argument(
         "--n-episodes",
         type=int,
-        default=100,
+        default=10,
         help="Episodes per round (federated) or total episodes (centralized)",
     )
     parser.add_argument(
         "--val-every",
         type=int,
-        default=4,
+        default=10,
         help="Validate every N rounds (federated mode only)",
     )
     parser.add_argument(

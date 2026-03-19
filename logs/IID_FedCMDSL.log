@@ -1,0 +1,13 @@
+nohup: ignoring input
+Initializing Experiment | Mode: federated | Scenario: IID | Device: cuda
+Train: 17,511  Val: 4,237  Test: 3,914
+Built 4 S2 clients, 4 S1 clients
+[FedCMFSL_IID_1shot] Round   1/100  loss=3.0473  S2=     skip  S1=     skip  best=0.00%  no_improve= 0  (136s)
+[FedCMFSL_IID_1shot] Round   2/100  loss=2.2364  S2=     skip  S1=     skip  best=0.00%  no_improve= 0  (121s)
+[FedCMFSL_IID_1shot] Round   3/100  loss=1.8693  S2=     skip  S1=     skip  best=0.00%  no_improve= 0  (119s)
+[FedCMFSL_IID_1shot] Round   4/100  loss=1.7476  S2=     skip  S1=     skip  best=0.00%  no_improve= 0  (118s)
+[FedCMFSL_IID_1shot] Round   5/100  loss=1.6936  S2=     skip  S1=     skip  best=0.00%  no_improve= 0  (117s)
+[FedCMFSL_IID_1shot] Round   6/100  loss=1.6789  S2=     skip  S1=     skip  best=0.00%  no_improve= 0  (117s)
+[FedCMFSL_IID_1shot] Round   7/100  loss=1.6281  S2=     skip  S1=     skip  best=0.00%  no_improve= 0  (116s)
+[FedCMFSL_IID_1shot] Round   8/100  loss=1.6516  S2=     skip  S1=     skip  best=0.00%  no_improve= 0  (116s)
+[FedCMFSL_IID_1shot] Round   9/100  loss=1.6167  S2=     skip  S1=     skip  best=0.00%  no_improve= 0  (116s)

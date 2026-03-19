@@ -1,7 +1,6 @@
 import torch
 import pandas as pd
 from config import (
-    BEN_COUNTRIES,
     BEN_META_TRAIN_CLASSES,
     BEN_META_VAL_CLASSES,
     BEN_BAD_PATCHES,
@@ -11,20 +10,18 @@ from config import (
 )
 from src.datasets.dataset_s1 import (
     BigEarthNetS1Dataset,
-    S1ValTransform,
     S1SupportTransform,
     S1TrainTransform,
 )
 from src.datasets.dataset_s2 import (
     BigEarthNetS2Dataset,
-    S2ValTransform,
     S2SupportTransform,
     S2TrainTransform,
 )
 from src.cetralised_trainer import run_centralized
 from src.federated_learning.factory import FederatedFactory
 from src.federated_trainier import run_federated
-from src.federated_learning.partitioner import partition_by_scenario
+from src.federated_learning.partitioner import _iid_split, _non_iid_split
 from src.models.protonet import ResNet12
 from src.federated_learning.client import build_clients
 
@@ -43,9 +40,7 @@ class ExperimentRunner:
     def _setup_data(self):
         if self.args.dataset == "BigEarthNet":
             meta_df = pd.read_csv(self.args.metadata_csv)
-            meta = meta_df[meta_df["country"].isin(BEN_COUNTRIES)].reset_index(
-                drop=True
-            )
+            meta = meta_df
 
             train_df = meta[
                 meta["primary_label"].isin(BEN_META_TRAIN_CLASSES)
@@ -75,28 +70,20 @@ class ExperimentRunner:
                 "S2": BigEarthNetS2Dataset(
                     val_df,
                     self.args.s2_root,
-                    support_transform=S2ValTransform(),
-                    query_transform=S2ValTransform(),
                 ),
                 "S1": BigEarthNetS1Dataset(
                     val_df,
                     self.args.s1_root,
-                    support_transform=S1ValTransform(),
-                    query_transform=S1ValTransform(),
                 ),
             }
             test_datasets = {
                 "S2": BigEarthNetS2Dataset(
                     test_df,
                     self.args.s2_root,
-                    support_transform=S2ValTransform(),
-                    query_transform=S2ValTransform(),
                 ),
                 "S1": BigEarthNetS1Dataset(
                     test_df,
                     self.args.s1_root,
-                    support_transform=S1ValTransform(),
-                    query_transform=S1ValTransform(),
                 ),
             }
             return train_df, val_datasets, test_datasets
@@ -169,9 +156,14 @@ class ExperimentRunner:
         )
         for k_shot in k_shots:
             label = f"{self.args.method}_{self.args.scenario}_{k_shot}shot"
-            partitions = partition_by_scenario(
-                self.train_df, self.args.scenario, self.args.n_clients
-            )
+            if self.args.scenario == "IID":
+                partitions = _iid_split(
+                    self.train_df, self.args.n_clients, unimodal=True
+                )
+            else:
+                partitions = _non_iid_split(
+                    self.train_df, self.args.n_clients, unimodal=True
+                )
 
             s2_encoder = ResNet12(in_channels=10)
             s1_encoder = ResNet12(in_channels=2)
@@ -209,7 +201,9 @@ class ExperimentRunner:
                 q_query=BEN_Q_QUERY,
                 n_way=BEN_N_WAY,
                 device=self.device,
-                track_protos=(self.args.method == "FedProto"),
+                track_protos=(
+                    self.args.method == "FedProto" or self.args.method == "FedCMFSL"
+                ),
                 val_every=self.args.val_every,
             )
             results[label] = result

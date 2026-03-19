@@ -81,25 +81,51 @@ class ProtoNet(nn.Module):
         self.out_dim = feat_dim
 
     def encode(self, x):
-        return self.encoder(x)
+        return F.normalize(self.encoder(x), dim=-1)
 
-    def forward(self, support_x, support_y, query_x, n_way):
+    def forward(self, support_x, support_y, query_x, n_way, tau=0.1):
         s_feat = self.encode(support_x)
         q_feat = self.encode(query_x)
         prototypes = torch.zeros(n_way, self.out_dim, device=s_feat.device)
         for c in range(n_way):
             prototypes[c] = s_feat[support_y == c].mean(dim=0)
         dists = torch.cdist(q_feat, prototypes).pow(2)
-        return -dists, prototypes
+        return -dists / tau, prototypes
 
     # In ProtoNet.train_episode(self):
     def train_episode(
-        self, s_x, s_y, q_x, q_y, n_way, true_classes=None, global_protos=None, lam=0.1
+        self,
+        s_x,
+        s_y,
+        q_x,
+        q_y,
+        n_way,
+        method: str = "base",
+        true_classes=None,
+        global_protos=None,
+        lam1=0.1,
+        lam2=0.1,
+        temperature=0.07,
     ):
+        """
+        Local Training for each method
+        Args:
+            s_x, s_y (Tensor): Support set images and labels.
+            q_x, q_y (Tensor): Query set images and labels.
+            n_way (int): Number of classes in the current episode.
+            method (str):
+                - "base": Standard Prototypical Network (Cross-Entropy only).
+                - "fed_proto": Standard classification + MSE regularization.
+                - "ours": Classification + Directional Alignment + Contrastive Loss.
+            true_classes (Tensor): Global class indices for the local prototypes.
+            global_protos (dict/Tensor): Reference global prototypes for alignment.
+            lam1, lam2 (float): Hyperparameters for regularization and contrastive terms.
+            temperature (float): Scaling factor for the contrastive similarity matrix.
+        """
         logits, local_protos = self.forward(s_x, s_y, q_x, n_way)
-        loss = F.cross_entropy(logits, q_y)
-
-        if global_protos is not None and lam > 0 and true_classes is not None:
+        loss_cls = F.cross_entropy(logits, q_y)
+        total_loss = loss_cls
+        if method != "base" and global_protos is not None and true_classes is not None:
             matched_local = []
             matched_global = []
 
@@ -113,8 +139,23 @@ class ProtoNet(nn.Module):
             if len(matched_local) > 0:
                 matched_local = torch.stack(matched_local)
                 matched_global = torch.stack(matched_global).to(local_protos.device)
-                loss_reg = F.mse_loss(matched_local, matched_global)
-                loss = loss + lam * loss_reg
+
+                if method == "ours":
+                    l_hat = F.normalize(matched_local, p=2, dim=1)  # [M, D]
+                    g_hat = F.normalize(matched_global, p=2, dim=1)  # [M, D]
+
+                    # L_reg : directional alignment
+                    loss_reg = (1.0 - (l_hat * g_hat).sum(dim=1)).mean()
+
+                    # L_con : InfoNCE
+                    con_logits = torch.matmul(l_hat, g_hat.T) / temperature  # [M, M]
+                    con_labels = torch.arange(len(l_hat)).to(l_hat.device)  # [M]
+                    loss_con = F.cross_entropy(con_logits, con_labels)
+
+                    total_loss += (lam1 * loss_reg) + (lam2 * loss_con)
+                elif method == "fed_proto":
+                    loss_reg = F.mse_loss(matched_local, matched_global)
+                    total_loss += lam1 * loss_reg
 
         acc = (logits.argmax(1) == q_y).float().mean().item() * 100
-        return loss, acc, local_protos
+        return total_loss, acc, local_protos
