@@ -1,0 +1,11 @@
+nohup: ignoring input
+Initializing Experiment | Mode: federated | Scenario: IID | Device: cuda
+Train: 17,511  Val: 4,237  Test: 3,914
+  Dropping 1 sparse class(es) (< 20 samples): ['Pastures']
+  Dropping 1 sparse class(es) (< 20 samples): ['Pastures']
+  Dropping 1 sparse class(es) (< 20 samples): ['Pastures']
+  Dropping 1 sparse class(es) (< 20 samples): ['Pastures']
+  Dropping 1 sparse class(es) (< 20 samples): ['Pastures']
+Built 4 S2 clients, 4 S1 clients
+[FedCMFSL_IID_5shot] Round   1/100  loss=1.7989  S2=     skip  S1=     skip  best=0.00%  no_improve= 0  (143s)
+[FedCMFSL_IID_5shot] Round   2/100  loss=1.7070  S2=     skip  S1=     skip  best=0.00%  no_improve= 0  (143s)

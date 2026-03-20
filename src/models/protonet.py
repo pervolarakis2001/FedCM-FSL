@@ -89,8 +89,8 @@ class ProtoNet(nn.Module):
         prototypes = torch.zeros(n_way, self.out_dim, device=s_feat.device)
         for c in range(n_way):
             prototypes[c] = s_feat[support_y == c].mean(dim=0)
-        dists = torch.cdist(q_feat, prototypes).pow(2)
-        return -dists / tau, prototypes
+        logits = torch.mm(q_feat, prototypes.T) / tau
+        return logits, prototypes
 
     # In ProtoNet.train_episode(self):
     def train_episode(

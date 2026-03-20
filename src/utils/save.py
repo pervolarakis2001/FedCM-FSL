@@ -1,12 +1,12 @@
 from pathlib import Path
 import pandas as pd
 import pickle, copy, time
-from config import CHECKPOINTS_PATH, FIGURES_PATH, RESULTS_DIR 
+from config import CHECKPOINTS_PATH, FIGURES_PATH, RESULTS_DIR
 
 CKPT_DIR = Path(CHECKPOINTS_PATH)
 CKPT_DIR.mkdir(parents=True, exist_ok=True)
 
-RESULTS_DIR = Path(RESULTS_DIR )
+RESULTS_DIR = Path(RESULTS_DIR)
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
 
@@ -21,6 +21,7 @@ def _experiment_dir(base_dir: Path, label: str) -> Path:
 # Checkpoints
 # ──────────────────────────────────────────────
 
+
 def save_checkpoint(
     label: str,
     round_idx: int,
@@ -28,16 +29,18 @@ def save_checkpoint(
     history: dict,
     best_acc: float,
     best_state: dict,
+    no_improve: int = 0,
 ):
     """Save mid-run state so a crash doesn't lose everything."""
     path = CKPT_DIR / f"{label}_ckpt.pt"
     payload = {
-        "label":       label,
-        "round":       round_idx,
+        "label": label,
+        "round": round_idx,
         "model_state": model_state,
-        "history":     history,
-        "best_acc":    best_acc,
-        "best_state":  best_state,
+        "history": history,
+        "best_acc": best_acc,
+        "best_state": best_state,
+        "no_improve": no_improve,
     }
     with open(path, "wb") as f:
         pickle.dump(payload, f)
@@ -90,7 +93,7 @@ def load_all_results(prefix: str = "", results_dir: str = None) -> dict:
     all_res = {}
 
     for pkl_path in sorted(base.glob("*/*.pkl")):
-        label = pkl_path.stem          
+        label = pkl_path.stem
         if prefix and not label.startswith(prefix):
             continue
         with open(pkl_path, "rb") as f:

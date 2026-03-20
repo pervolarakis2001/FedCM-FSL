@@ -150,7 +150,9 @@ def run_federated(
                     }
                 else:
                     best_state = {
-                        "global_protos": server.global_protos,
+                        "global_protos": {
+                            k: v.cpu().clone() for k, v in server.global_protos.items()
+                        },
                         "s2_client_states": {
                             c.client_id: {
                                 k: v.cpu().clone()
@@ -224,6 +226,7 @@ def run_federated(
             history=history,
             best_acc=best_acc,
             best_state=best_state,
+            no_improve=no_improve,
         )
 
     # ── Final test with BEST model ────────────────────────────────────────────
