@@ -171,29 +171,25 @@ def compute_temporal_confidence(
 
 
 class BaseServer:
-    def __init__(self, clients, fraction=1.0):
-        self.clients = clients
-        self.fraction = fraction  # Percentage of clients to select each round
+    def __init__(self, s2_clients, s1_clients, fraction=1.0):
+        self.s2_clients = s2_clients
+        self.s1_clients = s1_clients
+        self.clients = s2_clients + s1_clients
+        self.fraction = fraction
 
     def train_round(self, n_episodes=100):
-        """The universal federated learning loop."""
-        # Select a subset of clients
         num_to_select = max(1, int(self.fraction * len(self.clients)))
         selected_clients = random.sample(self.clients, num_to_select)
 
-        # Broadcast global state (implemented by subclasses)
         self._broadcast(selected_clients)
-
-        # Train locally and collect updates (implemented by subclasses)
         updates, round_losses, round_accs = self._collect_updates(
             selected_clients, n_episodes
         )
-
-        # Aggregate updates (implemented by subclasses)
         self._aggregate(updates)
 
         avg_loss = sum(round_losses) / len(round_losses) if round_losses else 0
-        return avg_loss
+        avg_acc = sum(round_accs) / len(round_accs) if round_accs else 0
+        return avg_loss, avg_acc
 
     def _broadcast(self, clients):
         raise NotImplementedError
@@ -230,33 +226,107 @@ class FedAvgServer(BaseServer):
 
 
 class FedProtoServer(BaseServer):
-    def __init__(self, s2_clients, s1_clients, fraction=1.0, lam=0.1):
-        super().__init__(s2_clients + s1_clients, fraction)
+    def __init__(
+        self,
+        s2_clients,
+        s1_clients,
+        fraction=1.0,
+        lam=0.1,
+        aggregate_mode="cross_modal",
+    ):
+        """
+        aggregate_mode:
+            "cross_modal"  — average S1+S2 prototypes together (baseline, will collapse)
+            "per_modality" — average within modality only (no cross-modal transfer)
+        """
+        super().__init__(s2_clients, s1_clients, fraction)
         self.lam = lam
+        self.aggregate_mode = aggregate_mode
         self.global_protos = {}
+        self.global_protos_s2 = {}
+        self.global_protos_s1 = {}
 
     def _broadcast(self, clients):
-        # FedProto doesn't set weights, it just passes the prototypes during training.
+        # FedProto doesn't share model weights
         pass
+
+    def _get_protos_for_client(self, client):
+        """Each client gets the right prototypes based on aggregate mode."""
+        if self.aggregate_mode == "per_modality":
+            if client.modality == "S2":
+                return self.global_protos_s2 or None
+            else:
+                return self.global_protos_s1 or None
+        # cross_modal: everyone gets the same (mixed) prototypes
+        return self.global_protos or None
 
     def _collect_updates(self, clients, n_episodes):
         updates, losses, accs = [], [], []
         for client in clients:
-            # Pass global prototypes into the training loop for regularization
             loss, acc = client.local_train(
                 n_episodes=n_episodes,
-                global_protos=self.global_protos if self.global_protos else None,
+                global_protos=self._get_protos_for_client(client),
                 lam=self.lam,
             )
-            # Collect newly generated prototypes
-            updates.append(client.extract_prototypes())
+            protos = client.extract_prototypes()
+            updates.append((protos, client.modality))
             losses.append(loss)
             accs.append(acc)
         return updates, losses, accs
 
     def _aggregate(self, updates):
-        # Use the average_prototypes helper function we defined earlier
+        if self.aggregate_mode == "cross_modal":
+            # Average everything together regardless of modality
+            all_protos = [p for p, _ in updates]
+            self.global_protos = average_prototypes(all_protos)
+
+        elif self.aggregate_mode == "per_modality":
+            s2_protos = [p for p, m in updates if m == "S2"]
+            s1_protos = [p for p, m in updates if m == "S1"]
+            if s2_protos:
+                self.global_protos_s2 = average_prototypes(s2_protos)
+            if s1_protos:
+                self.global_protos_s1 = average_prototypes(s1_protos)
+
+
+class FedProtoProjServer(BaseServer):
+    def __init__(self, s2_clients, s1_clients, fraction=1.0, lam=0.1):
+        super().__init__(s2_clients, s1_clients, fraction)
+        self.lam = lam
+        self.global_protos = {}
+        self.global_proj_weights = None
+
+    def _broadcast(self, clients):
+        """FedAvg the projection head so both modalities project to same space."""
+        if self.global_proj_weights is not None:
+            for client in clients:
+                client.set_projection_weights(self.global_proj_weights)
+
+    def _collect_updates(self, clients, n_episodes):
+        updates, losses, accs = [], [], []
+        proj_weights = []
+
+        for client in clients:
+            loss, acc = client.local_train(
+                n_episodes=n_episodes,
+                global_protos=self.global_protos or None,
+                lam=self.lam,
+            )
+            # Projected prototypes for prototype aggregation
+            updates.append(client.extract_prototypes())
+            # Projection head weights for FedAvg
+            proj_weights.append(client.get_projection_weights())
+            losses.append(loss)
+            accs.append(acc)
+
+        self._proj_weights = proj_weights
+        return updates, losses, accs
+
+    def _aggregate(self, updates):
+        # Average prototypes in projected space (cross-modal, same space now)
         self.global_protos = average_prototypes(updates)
+        # FedAvg the projection head weights
+        self.global_proj_weights = average_weights(self._proj_weights)
 
 
 class FedCMFSLServer(BaseServer):

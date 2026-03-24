@@ -37,16 +37,13 @@ class BigEarthNetS1Dataset(Dataset):
     ):
         self.meta = metadata_df.reset_index(drop=True)
         self.s1_root = Path(s1_root)
+        self.normalize = S1_NORMALIZE
         self.support_transform = support_transform or S1SupportTransform()
         self.query_transform = query_transform or S1TrainTransform()
         self.class_images = {}
         for idx in range(len(self.meta)):
             cls_int = CLASS_TO_IDX[self.meta.iloc[idx]["primary_label"]]
             self.class_images.setdefault(cls_int, []).append(idx)
-
-    @property
-    def df(self) -> pd.DataFrame:
-        return self.meta
 
     def get_num_classes(self):
         return len(self.class_images)
@@ -60,65 +57,34 @@ class BigEarthNetS1Dataset(Dataset):
     def __getitem__(self, idx):
         row = self.meta.iloc[idx]
         patch_dir = self.s1_root / row["s1_name"]
-        image = load_s1_patch(patch_dir)  # raw — NO transform here
+        image = load_s1_patch(patch_dir)
+        image = self.normalize(image)  # always normalized
         label = CLASS_TO_IDX[row["primary_label"]]
         return image, label, row["patch_id"]
 
 
 class S1TrainTransform:
-    """
-    Safe augmentations for 2-band S1 patches (2, H, W).
-    Rules:
-    - Spatial: safe
-    - Speckle noise: realistic for SAR — multiplicative noise model
-    - NO random erasing: SAR is cloud-transparent so no occlusion simulation
-    """
-
-    def __init__(self):
-        self.normalize = S1_NORMALIZE
+    """Augmentations on already-normalized S1 patches."""
 
     def __call__(self, x):
-        # x: (2, H, W) float32 tensor (VV, VH in dB)
-
-        # 1. Random horizontal flip
         if random.random() > 0.5:
             x = TF.hflip(x)
-
-        # 2. Random vertical flip
         if random.random() > 0.5:
             x = TF.vflip(x)
-
-        # 3. Random 90-degree rotation
         k = random.choice([0, 1, 2, 3])
         if k > 0:
             x = torch.rot90(x, k, dims=[1, 2])
-
-        # 4. Speckle noise — realistic for SAR (multiplicative in linear, additive in dB)
         if random.random() > 0.5:
-            noise = torch.randn_like(x) * 0.5  # 0.5 dB std — mild speckle
+            noise = torch.randn_like(x) * 0.08  # ~0.5 dB / ~5.5 std
             x = x + noise
-
-        # 5. Normalize last
-        x = self.normalize(x)
         return x
 
 
 class S1SupportTransform:
-    def __init__(self):
-        self.normalize = S1_NORMALIZE
-
     def __call__(self, x):
-        if random.random() > 0.5:
-            x = TF.hflip(x)
-        if random.random() > 0.5:
-            x = TF.vflip(x)
-        k = random.choice([0, 1, 2, 3])
-        if k > 0:
-            x = torch.rot90(x, k, dims=[1, 2])
-        # NO speckle noise
-        return self.normalize(x)
+        return x
 
 
 class S1ValTransform:
     def __call__(self, x):
-        return S1_NORMALIZE(x)
+        return x

@@ -63,16 +63,13 @@ class BigEarthNetS2Dataset(Dataset):
     ):
         self.meta = metadata_df.reset_index(drop=True)
         self.s2_root = Path(s2_root)
+        self.normalize = S2_NORMALIZE
         self.support_transform = support_transform or S2SupportTransform()
         self.query_transform = query_transform or S2TrainTransform()
         self.class_images = {}
         for idx in range(len(self.meta)):
             cls_int = CLASS_TO_IDX[self.meta.iloc[idx]["primary_label"]]
             self.class_images.setdefault(cls_int, []).append(idx)
-
-    @property
-    def df(self) -> pd.DataFrame:
-        return self.meta
 
     def get_num_classes(self):
         return len(self.class_images)
@@ -86,75 +83,41 @@ class BigEarthNetS2Dataset(Dataset):
     def __getitem__(self, idx):
         row = self.meta.iloc[idx]
         patch_dir = self.s2_root / row["patch_id"]
-        image = load_s2_patch(patch_dir)  # raw — NO transform here
+        image = load_s2_patch(patch_dir)
+        image = self.normalize(image)  # always normalized
         label = CLASS_TO_IDX[row["primary_label"]]
         return image, label, row["patch_id"]
 
 
 class S2TrainTransform:
-    """
-    Safe augmentations for 10-band S2 patches (10, 120, 120).
-    Rules:
-    - Spatial transforms: safe (flip, rotate) — applied to all bands equally
-    - Color/spectral jitter: avoid — breaks NDVI and band ratios
-    - Gaussian noise: safe — simulates sensor noise
-    - Random erasing: safe — simulates cloud/shadow occlusion (realistic for S2)
-    """
-
-    def __init__(self):
-        self.normalize = S2_NORMALIZE
+    """Augmentations on already-normalized S2 patches."""
 
     def __call__(self, x):
-        # x: (10, H, W) float32 tensor
-
-        # 1. Random horizontal flip
         if random.random() > 0.5:
             x = TF.hflip(x)
-
-        # 2. Random vertical flip
         if random.random() > 0.5:
             x = TF.vflip(x)
-
-        # 3. Random 90-degree rotation (0, 90, 180, 270)
         k = random.choice([0, 1, 2, 3])
         if k > 0:
             x = torch.rot90(x, k, dims=[1, 2])
-
-        # 4. Gaussian noise — simulates sensor noise
         if random.random() > 0.5:
-            noise = torch.randn_like(x) * 50.0  # std in raw DN units
+            noise = torch.randn_like(x) * 0.05  # ~50 DN / ~800 std
             x = x + noise
-
-        # 5. Random erasing — simulates cloud/shadow patches
         if random.random() > 0.5:
             c, h, w = x.shape
             erase_h = random.randint(10, 30)
             erase_w = random.randint(10, 30)
             top = random.randint(0, h - erase_h)
             left = random.randint(0, w - erase_w)
-            x[:, top : top + erase_h, left : left + erase_w] = 0.0  # zero = cloud mask
-
-        # 6. Normalize last
-        x = self.normalize(x)
+            x[:, top : top + erase_h, left : left + erase_w] = 0.0
         return x
 
 
 class S2SupportTransform:
-    def __init__(self):
-        self.normalize = S2_NORMALIZE
-
     def __call__(self, x):
-        if random.random() > 0.5:
-            x = TF.hflip(x)
-        if random.random() > 0.5:
-            x = TF.vflip(x)
-        k = random.choice([0, 1, 2, 3])
-        if k > 0:
-            x = torch.rot90(x, k, dims=[1, 2])
-        # NO noise, NO erasing
-        return self.normalize(x)
+        return x
 
 
 class S2ValTransform:
     def __call__(self, x):
-        return S2_NORMALIZE(x)
+        return x

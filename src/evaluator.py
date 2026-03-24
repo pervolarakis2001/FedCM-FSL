@@ -113,7 +113,7 @@ def evaluate_with_ci(
 
             # Evaluate EVERY personalized model on this exact same episode
             for client_idx, model in enumerate(models_list):
-                logits, _ = model(s_x, s_y, q_x, n_way=n_way)
+                logits, _, _ = model(s_x, s_y, q_x, n_way=n_way)
                 acc = (logits.argmax(1) == q_y).float().mean().item() * 100
 
                 episode_client_accs.append(acc)
@@ -148,59 +148,3 @@ def evaluate_with_ci(
         }
 
     return results
-
-
-@torch.no_grad()
-def extract_modal_prototypes(clients: list, device) -> dict:
-    proto_sum = {}
-    proto_count = {}
-    for client in clients:
-        # Use accumulated protos if available (free), else fall back to re-scan
-        if hasattr(client, "_accumulated_protos") and client._accumulated_protos:
-            client_protos = client._accumulated_protos
-        else:
-            # fallback: but apply the transform this time
-            client.model.eval()
-            client_protos = {}
-            for cls_idx, indices in client.dataset.class_images.items():
-                all_feats = []
-                for i in range(0, len(indices), 32):
-                    batch = indices[i : i + 32]
-                    imgs = torch.stack(
-                        [
-                            client.dataset.support_transform(
-                                client.dataset[j][0]
-                            )  # ← transform applied
-                            for j in batch
-                        ]
-                    ).to(device)
-                    all_feats.append(client.model.encode(imgs).cpu())
-                client_protos[cls_idx] = torch.cat(all_feats).mean(0)
-
-        for cls_idx, proto in client_protos.items():
-            if cls_idx not in proto_sum:
-                proto_sum[cls_idx] = torch.zeros_like(proto)
-                proto_count[cls_idx] = 0
-            proto_sum[cls_idx] += proto
-            proto_count[cls_idx] += 1
-
-    return {k: proto_sum[k] / proto_count[k] for k in proto_sum}
-
-
-def compute_inter_modal_distance(protos_s2: dict, protos_s1: dict) -> dict:
-    """
-    Per-class L2 and cosine distance between S2 and S1 prototypes.
-    Returns {"avg_l2", "avg_cosine", "per_class": {cls: {"l2", "cosine"}}}.
-    """
-    common = set(protos_s2.keys()) & set(protos_s1.keys())
-    per_class = {}
-    for cls in common:
-        p2 = protos_s2[cls].float()
-        p1 = protos_s1[cls].float()
-        l2 = torch.norm(p2 - p1).item()
-        cos = F.cosine_similarity(p2.unsqueeze(0), p1.unsqueeze(0)).item()
-        per_class[cls] = {"l2": l2, "cosine": cos}
-
-    avg_l2 = float(np.mean([v["l2"] for v in per_class.values()]))
-    avg_cos = float(np.mean([v["cosine"] for v in per_class.values()]))
-    return {"avg_l2": avg_l2, "avg_cosine": avg_cos, "per_class": per_class}

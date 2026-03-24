@@ -46,8 +46,8 @@ class BaseEpisodicClient:
         self.model = model.to(device)
         self.device = device
         self.n_way = n_way
+        self.modality = modality
 
-        # Episodic sampler is now standard for all clients
         self.sampler = EpisodeSampler(
             dataset, n_way=n_way, k_shot=k_shot, q_query=q_query, is_train=True
         )
@@ -55,17 +55,12 @@ class BaseEpisodicClient:
             self.model.parameters(), lr=lr, weight_decay=5e-4
         )
 
-        self.modality = modality
-        self._accumulated_protos = {}  # Initialize here once for all subclasses
-
     def get_weights(self):
-        """Standard for FedAvg and others that share model parameters."""
         if hasattr(self.model.encoder, "get_shared_weights"):
             return self.model.encoder.get_shared_weights()
-        return {k: v.cpu() for k, v in self.model.state_dict().items()}
+        return {k: v.clone().cpu() for k, v in self.model.state_dict().items()}
 
     def set_weights(self, global_weights):
-        """Dynamically loads weights based on the encoder type."""
         if hasattr(self.model.encoder, "load_shared_weights"):
             self.model.encoder.load_shared_weights(global_weights)
         else:
@@ -74,8 +69,6 @@ class BaseEpisodicClient:
     def local_train(self, n_episodes=100, **kwargs):
         self.model.train()
         losses, accs = [], []
-        proto_accumulator = {}  # cls_idx -> list of proto tensors
-        proto_counts = {}
 
         for s_x, s_y, q_x, q_y, true_classes in self.sampler.episodes(n_episodes):
             s_x, s_y = s_x.to(self.device), s_y.to(self.device)
@@ -89,32 +82,24 @@ class BaseEpisodicClient:
             torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=10.0)
             self.optimizer.step()
 
-            # Accumulate running average
-            if local_protos is not None:
-                for i, true_class in enumerate(true_classes):
-                    cls = true_class.item()
-                    proto = local_protos[i].detach().cpu()
-                    if cls not in proto_accumulator:
-                        proto_accumulator[cls] = proto
-                        proto_counts[cls] = 1
-                    else:
-                        n = proto_counts[cls]
-                        proto_accumulator[cls] = (
-                            proto_accumulator[cls] * n + proto
-                        ) / (n + 1)
-                        proto_counts[cls] += 1
-
             losses.append(loss.item())
             accs.append(acc)
 
-        self._accumulated_protos = proto_accumulator  # Save for extract_prototypes
         return np.mean(losses), np.mean(accs)
 
     def _compute_loss(self, s_x, s_y, q_x, q_y, **kwargs):
-        raise NotImplementedError("Subclasses must define how to compute the loss.")
+        raise NotImplementedError
 
     def extract_prototypes(self):
-        return self._accumulated_protos
+        """Stable prototypes from full local data for server communication."""
+        return self.model.get_native_prototypes(
+            self._get_full_dataloader(), self.device
+        )
+
+    def _get_full_dataloader(self):
+        from torch.utils.data import DataLoader
+
+        return DataLoader(self.dataset, batch_size=128, shuffle=False, num_workers=0)
 
 
 class FedAvgClient(BaseEpisodicClient):
@@ -182,14 +167,66 @@ class FedProtoClient(BaseEpisodicClient):
             q_x,
             q_y,
             self.n_way,
+            method="fed_proto",
             true_classes=true_classes,
             global_protos=global_protos,
             lam1=lam,
-            lam2=0.0,
-            method="fed_proto",
-            temperature=0.0,
         )
         return loss, acc, local_protos
+
+    def extract_prototypes(self):
+        """Stable prototypes from full local data, not episode averages."""
+        return self.model.get_native_prototypes(
+            self._get_full_dataloader(), self.device
+        )
+
+
+class FedProtoProjClient(BaseEpisodicClient):
+    """FedProto but with a shared Projector to allign S1 and S2 modalities representations"""
+
+    def local_train(self, n_episodes=100, global_protos=None, lam=0.1, **kwargs):
+        return super().local_train(
+            n_episodes, global_protos=global_protos, lam=lam, **kwargs
+        )
+
+    def _compute_loss(
+        self,
+        s_x,
+        s_y,
+        q_x,
+        q_y,
+        true_classes=None,
+        global_protos=None,
+        lam=0.1,
+        **kwargs,
+    ):
+        loss, acc, local_protos = self.model.train_episode(
+            s_x,
+            s_y,
+            q_x,
+            q_y,
+            self.n_way,
+            true_classes=true_classes,
+            global_protos=global_protos,
+            lam1=lam,
+            method="fed_proto_proj",
+        )
+        return loss, acc, local_protos
+
+    def extract_prototypes(self):
+        """Send projected prototypes for aggregation"""
+        return self.model.get_projected_prototypes(
+            self._get_full_dataloader(), self.device
+        )
+
+    def get_projection_weights(self):
+        return {
+            k: v.clone().cpu()
+            for k, v in self.model.projection_head.state_dict().items()
+        }
+
+    def set_projection_weights(self, weights):
+        self.model.projection_head.load_state_dict(weights)
 
 
 class FedCMFSLClient(BaseEpisodicClient):
@@ -262,14 +299,16 @@ def build_clients(
     k_shot=1,
     q_query=15,
     lr=1e-3,
+    use_projection=False,
+    proj_dim=128,
 ):
-    min_required = k_shot + q_query
     s2_clients, s1_clients = [], []
     for p in partitions:
         clean_df = filter_sparse_classes(p.df, min_samples=k_shot + q_query)
         if clean_df["primary_label"].nunique() < n_way:
             print(f"  ✗ Skipping client {p.client_id}")
             continue
+
         if p.has_s2:
             if split_encoder:
                 enc = SplitEncoder(
@@ -277,7 +316,9 @@ def build_clients(
                 )
             else:
                 enc = copy.deepcopy(s2_encoder)
-            model = ProtoNet(enc, feat_dim=512)
+            model = ProtoNet(
+                enc, feat_dim=512, proj_dim=proj_dim, use_projection=use_projection
+            )
             s2_clients.append(
                 ClientClass(
                     client_id=f"client{p.client_id}_S2",
@@ -291,12 +332,15 @@ def build_clients(
                     modality="S2",
                 )
             )
+
         if p.has_s1:
             if split_encoder:
                 enc = SplitEncoder(in_channels=2, shared_body=copy.deepcopy(s1_encoder))
             else:
                 enc = copy.deepcopy(s1_encoder)
-            model = ProtoNet(enc, feat_dim=512)
+            model = ProtoNet(
+                enc, feat_dim=512, proj_dim=proj_dim, use_projection=use_projection
+            )
             s1_clients.append(
                 ClientClass(
                     client_id=f"client{p.client_id}_S1",
@@ -310,6 +354,7 @@ def build_clients(
                     modality="S1",
                 )
             )
+
     print(f"Built {len(s2_clients)} S2 clients, {len(s1_clients)} S1 clients")
     return s2_clients, s1_clients
 

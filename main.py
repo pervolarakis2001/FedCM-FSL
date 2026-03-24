@@ -54,7 +54,7 @@ def parse_args():
     )
     parser.add_argument(
         "--method",
-        choices=["FedProto", "FedAvg", "FedCMFSL"],
+        choices=["FedProto", "FedAvg", "FedCMFSL", "FedProtoProj"],
         default="FedProto",
         help="Federated method (ignored for centralized mode)",
     )

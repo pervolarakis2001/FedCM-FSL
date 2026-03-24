@@ -169,6 +169,7 @@ class ExperimentRunner:
             s1_encoder = ResNet12(in_channels=2)
 
             use_split = self.args.method == "FedAvg"
+            use_projection = self.args.method == "FedProtoProj"
             s2_clients, s1_clients = build_clients(
                 partitions=partitions,
                 s2_root=self.args.s2_root,
@@ -181,6 +182,7 @@ class ExperimentRunner:
                 n_way=BEN_N_WAY,
                 k_shot=k_shot,
                 q_query=BEN_Q_QUERY,
+                use_projection=use_projection,
             )
 
             server, _, shared_body = FederatedFactory.get_components(
@@ -201,9 +203,6 @@ class ExperimentRunner:
                 q_query=BEN_Q_QUERY,
                 n_way=BEN_N_WAY,
                 device=self.device,
-                track_protos=(
-                    self.args.method == "FedProto" or self.args.method == "FedCMFSL"
-                ),
                 val_every=self.args.val_every,
             )
             results[label] = result

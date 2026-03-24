@@ -1,0 +1,18 @@
+nohup: ignoring input
+Initializing Experiment | Mode: federated | Scenario: IID | Device: cuda
+Train: 17,511  Val: 4,237  Test: 3,914
+Built 4 S2 clients, 4 S1 clients
+[FedProtoProj_IID_1shot] Round   1/100  loss=1.6555  S2=35.2%  S1=37.4%  gap=2.1%  margin(S2=0.363,S1=0.404)  norm(S2=46.7,S1=27.0)  best=0.0%  (179s)
+[FedProtoProj_IID_1shot] Round   2/100  loss=1.5360  train_acc=29.1%  (172s)
+[FedProtoProj_IID_1shot] Round   3/100  loss=1.5276  train_acc=29.6%  (171s)
+[FedProtoProj_IID_1shot] Round   4/100  loss=1.5419  train_acc=29.8%  (171s)
+[FedProtoProj_IID_1shot] Round   5/100  loss=1.5344  train_acc=29.8%  (168s)
+[FedProtoProj_IID_1shot] Round   6/100  loss=1.5135  train_acc=30.7%  (168s)
+[FedProtoProj_IID_1shot] Round   7/100  loss=1.4907  train_acc=32.9%  (174s)
+[FedProtoProj_IID_1shot] Round   8/100  loss=1.5029  train_acc=32.8%  (168s)
+[FedProtoProj_IID_1shot] Round   9/100  loss=1.5021  train_acc=32.9%  (165s)
+[FedProtoProj_IID_1shot] Round  10/100  loss=1.5294  S2=44.5%  S1=43.3%  gap=1.2%  margin(S2=0.403,S1=0.340)  norm(S2=17.1,S1=16.4)  best=36.3%  (166s)
+[FedProtoProj_IID_1shot] Round  11/100  loss=1.4819  train_acc=34.2%  (169s)
+[FedProtoProj_IID_1shot] Round  12/100  loss=1.4927  train_acc=33.1%  (168s)
+[FedProtoProj_IID_1shot] Round  13/100  loss=1.4760  train_acc=33.0%  (167s)
+[FedProtoProj_IID_1shot] Round  14/100  loss=1.4856  train_acc=33.0%  (171s)

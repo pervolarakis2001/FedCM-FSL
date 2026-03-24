@@ -1,5 +1,5 @@
-from .server import FedAvgServer, FedProtoServer, FedCMFSLServer
-from .client import FedAvgClient, FedProtoClient, FedCMFSLClient
+from .server import FedAvgServer, FedProtoServer, FedCMFSLServer, FedProtoProjServer
+from .client import FedAvgClient, FedProtoClient, FedCMFSLClient, FedProtoProjClient
 from src.models.protonet import ResNet12
 
 
@@ -19,6 +19,11 @@ class FederatedFactory:
             # FedProto doesn't share weights, it shares prototypes
             server = FedProtoServer(s2_clients, s1_clients, lam=0.1)
             return server, FedProtoClient, None
+
+        elif args.method == "FedProtoProj":
+            # FedProto doesn't share weights, it shares prototypes
+            server = FedProtoProjServer(s2_clients, s1_clients, lam=0.1)
+            return server, FedProtoProjClient, None
         elif args.method == "FedCMFSL":
             server = FedCMFSLServer(
                 s2_clients=s2_clients,

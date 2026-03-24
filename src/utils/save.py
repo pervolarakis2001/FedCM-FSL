@@ -30,6 +30,7 @@ def save_checkpoint(
     best_acc: float,
     best_state: dict,
     no_improve: int = 0,
+    **extra,
 ):
     """Save mid-run state so a crash doesn't lose everything."""
     path = CKPT_DIR / f"{label}_ckpt.pt"
@@ -41,6 +42,7 @@ def save_checkpoint(
         "best_acc": best_acc,
         "best_state": best_state,
         "no_improve": no_improve,
+        **extra,
     }
     with open(path, "wb") as f:
         pickle.dump(payload, f)
