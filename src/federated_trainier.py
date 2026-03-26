@@ -76,12 +76,13 @@ def _compute_analysis_metrics(server, s2_clients, s1_clients, device):
                     server.class_to_idx[c] for c in classes if c in server.class_to_idx
                 ]
                 if len(gi) >= 2:
+
                     gi_t = torch.tensor(gi)
                     D_global_sub = server.global_D[gi_t][:, gi_t]
 
                     idx = torch.triu_indices(len(gi), len(gi), offset=1)
-                    local_vals = D[: len(gi), : len(gi)][idx[0], idx[1]].numpy()
-                    global_vals = D_global_sub[idx[0], idx[1]].numpy()
+                    local_vals = D[: len(gi), : len(gi)][idx[0], idx[1]].cpu().numpy()
+                    global_vals = D_global_sub[idx[0], idx[1]].cpu().numpy()
 
                     if len(local_vals) > 1:
                         rho, _ = spearmanr(local_vals, global_vals)
@@ -113,8 +114,8 @@ def _compute_analysis_metrics(server, s2_clients, s1_clients, device):
             # Compare structure: native vs projected
             n = min(D.shape[0], D_proj.shape[0])
             idx = torch.triu_indices(n, n, offset=1)
-            native_vals = D[:n, :n][idx[0], idx[1]].cpu().numpy()
-            proj_vals = D_proj[idx[0], idx[1]].detach().cpu().numpy()
+            native_vals = D[:n, :n][idx[0], idx[1]].numpy()
+            proj_vals = D_proj[idx[0], idx[1]].detach().numpy()
             rho, _ = spearmanr(native_vals, proj_vals)
 
     return {
@@ -223,6 +224,9 @@ def _load_client_states(
         server.class_to_idx = state["class_to_idx"]
     if "global_proj_weights" in state and hasattr(server, "global_proj_weights"):
         server.global_proj_weights = state["global_proj_weights"]
+
+
+PATIENCE_FEDERATED = 100
 
 
 def run_federated(

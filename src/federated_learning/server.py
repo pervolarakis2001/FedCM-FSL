@@ -330,101 +330,74 @@ class FedProtoProjServer(BaseServer):
 
 
 class FedCMFSLServer(BaseServer):
-    def __init__(
-        self,
-        s2_clients,
-        s1_clients,
-        fraction=1.0,
-        lam1=0.1,
-        lam2=0.1,
-        temperature=0.07,
-        bank_max_history=10,
-    ):
-        super().__init__(s2_clients + s1_clients, fraction)
-        self.s2_clients = s2_clients
-        self.s1_clients = s1_clients
-        self.lam1 = lam1
-        self.lam2 = lam2
-        self.temperature = temperature
+    def __init__(self, s2_clients, s1_clients, fraction=1.0, lam=0.1):
+        super().__init__(s2_clients, s1_clients, fraction)
 
-        self.global_protos = {}
+        # 1. Dynamically find ALL unique class IDs from all clients
+        all_unique_classes = set()
+        for c in self.clients:
+            # This assumes your dataset object has a .classes or similar attribute
+            # If not, you can use unique values from the sampler's valid_class_keys
+            all_unique_classes.update(c.sampler.class_keys)
 
-        # ── BANK lives here ───────────────────────────────────────────────
-        # bank_s2[cls] = deque of past normalized optical prototypes
-        # bank_s1[cls] = deque of past normalized SAR prototypes
-        self.bank_s2 = {}
-        self.bank_s1 = {}
-        self.bank_max_history = bank_max_history  # sliding window size
+        # 2. Sort them to ensure consistent matrix indexing
+        self.sorted_classes = sorted(list(all_unique_classes))
+        self.num_classes = len(self.sorted_classes)
 
-    # ── helpers ──────────────────────────────────────────────────────────
+        # 3. Create the mapping: ClassID -> Matrix Row/Col Index
+        self.class_to_idx = {cls_id: i for i, cls_id in enumerate(self.sorted_classes)}
 
-    def _update_bank(self, bank: dict, protos: dict):
-        """Push current round's normalized prototypes into the sliding window."""
-        for cls, proto in protos.items():
-            if cls not in bank:
-                bank[cls] = collections.deque(maxlen=self.bank_max_history)
-            bank[cls].append(F.normalize(proto.detach(), dim=-1))
-
-    def _split_updates(self, updates, clients):
-        """Separate prototype dicts by modality."""
-        s2_updates = [u for u, c in zip(updates, clients) if c in self.s2_clients]
-        s1_updates = [u for u, c in zip(updates, clients) if c in self.s1_clients]
-        return s2_updates, s1_updates
-
-    # ── BaseServer interface ──────────────────────────────────────────────
+        self.lam = lam
+        self.global_D = torch.zeros((self.num_classes, self.num_classes))
+        self.obs_mask = torch.zeros(
+            (self.num_classes, self.num_classes), dtype=torch.bool
+        )
 
     def _broadcast(self, clients):
-        pass  # global_protos injected at train time, nothing to push
+        # Our method doesn't share model weights
+        pass
 
     def _collect_updates(self, clients, n_episodes):
         updates, losses, accs = [], [], []
+
         for client in clients:
             loss, acc = client.local_train(
                 n_episodes=n_episodes,
-                global_protos=self.global_protos if self.global_protos else None,
-                lam1=self.lam1,
-                lam2=self.lam2,
-                temperature=self.temperature,
+                global_D=self.global_D,
+                obs_mask=self.obs_mask,
+                class_to_idx=self.class_to_idx,
+                lam=self.lam,
             )
-            updates.append(client.extract_prototypes())
+            local_D, local_classes = client.extract_distance_matrix()
+
+            updates.append((local_D, local_classes))
             losses.append(loss)
             accs.append(acc)
+
         return updates, losses, accs
 
     def _aggregate(self, updates):
-        raise NotImplementedError("Use train_round override")
+        """Combine heterogeneous local matrices into the global consensus."""
+        # Ensure these are on CPU to match incoming .cpu() clones if you prefer,
+        # or just move incoming data to match the server's device.
+        new_global_D = torch.zeros((self.num_classes, self.num_classes))
+        counts = torch.zeros((self.num_classes, self.num_classes))
 
-    def train_round(self, n_episodes=100):
-        """Override to pass selected_clients into _aggregate."""
-        num_to_select = max(1, int(self.fraction * len(self.clients)))
-        selected = random.sample(self.clients, num_to_select)
+        for local_D, local_classes in updates:
+            # Move local_D to CPU to match new_global_D
+            local_D_cpu = local_D.cpu()
 
-        self._broadcast(selected)
-        updates, losses, accs = self._collect_updates(selected, n_episodes)
-        self._aggregate_cpga(updates, selected)
+            for i, class_i in enumerate(local_classes):
+                idx_i = self.class_to_idx[class_i]
+                for j, class_j in enumerate(local_classes):
+                    idx_j = self.class_to_idx[class_j]
 
-        return sum(losses) / len(losses) if losses else 0.0
+                    # Now both are on CPU
+                    new_global_D[idx_i, idx_j] += local_D_cpu[i, j]
+                    counts[idx_i, idx_j] += 1
 
-    def _aggregate_cpga(self, updates, selected_clients):
-        # ── 1. split updates by modality ─────────────────────────────────
-        s2_updates, s1_updates = self._split_updates(updates, selected_clients)
+        mask = counts > 0
+        new_global_D[mask] = new_global_D[mask] / counts[mask]
 
-        # ── 2. intra-modal mean ───────────────────────────────────────────
-        s2_protos = average_prototypes(s2_updates)  # {cls: tensor}
-        s1_protos = average_prototypes(s1_updates)
-
-        if not s2_protos or not s1_protos:
-            # one modality completely absent this round — skip bank update
-            return
-
-        # ── 3. CPGA with current bank
-        global_protos, cons, w2, w1 = cpga_aggregation(
-            s2_protos,
-            s1_protos,
-            bank_s2=self.bank_s2,
-            bank_s1=self.bank_s1,
-        )
-        self.global_protos = global_protos
-
-        self._update_bank(self.bank_s2, s2_protos)
-        self._update_bank(self.bank_s1, s1_protos)
+        self.global_D = new_global_D
+        self.obs_mask = mask

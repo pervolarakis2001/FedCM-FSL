@@ -17,39 +17,39 @@ import pickle, copy, time
 
 
 def build_eval_encoders(shared_body, device, s2_clients=None, s1_clients=None):
-    """
-    Returns a dictionary mapping modality to a LIST of personalized models.
-    """
     encoders = {"S2": [], "S1": []}
 
-    if shared_body is not None:
-        # Assuming you want to wrap them in ProtoNet
-        if s2_clients:
-            for client in s2_clients:
-                enc = SplitEncoder(
-                    in_channels=10, shared_body=copy.deepcopy(shared_body)
-                )
-                enc.load_state_dict(client.model.encoder.state_dict())
-                encoders["S2"].append(ProtoNet(enc, feat_dim=512).to(device).eval())
-        if s1_clients:
-            for client in s1_clients:
-                enc = SplitEncoder(
-                    in_channels=2, shared_body=copy.deepcopy(shared_body)
-                )
-                enc.load_state_dict(client.model.encoder.state_dict())
-                encoders["S1"].append(ProtoNet(enc, feat_dim=512).to(device).eval())
-    else:
-        # Pure deepcopy of the personalized models
-        if s2_clients:
-            encoders["S2"] = [
-                copy.deepcopy(client.model).to(device).eval() for client in s2_clients
-            ]
-        if s1_clients:
-            encoders["S1"] = [
-                copy.deepcopy(client.model).to(device).eval() for client in s1_clients
-            ]
+    def prepare_model(client):
+        # 1. Get the architecture settings from the actual trained client
+        use_proj = client.model.use_projection
+        p_dim = client.model.proj_dim if use_proj else 128
+        f_dim = client.model.out_dim
 
-    # Clean up empty lists
+        # 2. Create a fresh encoder shell
+        if shared_body is not None:
+            in_ch = 10 if client.modality == "S2" else 2
+            enc = SplitEncoder(
+                in_channels=in_ch, shared_body=copy.deepcopy(shared_body)
+            )
+        else:
+            enc = copy.deepcopy(client.model.encoder)
+
+        # 3. Wrap in ProtoNet with the SAME flags as the trained model
+        new_model = ProtoNet(
+            enc, feat_dim=f_dim, proj_dim=p_dim, use_projection=use_proj
+        )
+
+        # 4. Load the fully trained weights (Encoder + Projector)
+        new_model.load_state_dict(client.model.state_dict())
+        return new_model.to(device).eval()
+
+    if s2_clients:
+        for client in s2_clients:
+            encoders["S2"].append(prepare_model(client))
+    if s1_clients:
+        for client in s1_clients:
+            encoders["S1"].append(prepare_model(client))
+
     return {k: v for k, v in encoders.items() if len(v) > 0}
 
 

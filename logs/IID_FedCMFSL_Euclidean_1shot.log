@@ -1,0 +1,4 @@
+nohup: ignoring input
+Initializing Experiment | Mode: federated | Scenario: IID | Device: cpu
+Train: 17,511  Val: 4,237  Test: 3,914
+Built 4 S2 clients, 4 S1 clients

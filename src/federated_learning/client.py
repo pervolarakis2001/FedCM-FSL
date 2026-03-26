@@ -232,19 +232,20 @@ class FedProtoProjClient(BaseEpisodicClient):
 class FedCMFSLClient(BaseEpisodicClient):
     def local_train(
         self,
-        n_episodes=100,
-        global_protos=None,
-        lam1=0.1,
-        lam2=0.1,
-        temperature=0.07,
+        n_episodes=5,
+        global_D=None,
+        obs_mask=None,
+        class_to_idx=None,
+        lam=0.1,
         **kwargs,
     ):
+        # We pass the geometric data (D matrix and mask) down to super().local_train
         return super().local_train(
-            n_episodes,
-            global_protos=global_protos,
-            lam1=lam1,
-            lam2=lam2,
-            temperature=temperature,
+            n_episodes=n_episodes,
+            global_D=global_D,
+            obs_mask=obs_mask,
+            class_to_idx=class_to_idx,
+            lam=lam,
             **kwargs,
         )
 
@@ -255,27 +256,37 @@ class FedCMFSLClient(BaseEpisodicClient):
         q_x,
         q_y,
         true_classes=None,
-        global_protos=None,
-        lam1=0.1,
-        lam2=0.1,
-        temperature=0.07,
+        global_D=None,
+        obs_mask=None,
+        class_to_idx=None,
+        lam=0.1,
         **kwargs,
     ):
-        # Changed method to "proposed" and correctly passed lam1, lam2, and temperature
+
+        # This calls the ProtoNet.train_episode method we wrote
         loss, acc, local_protos = self.model.train_episode(
             s_x,
             s_y,
             q_x,
             q_y,
             self.n_way,
+            method="rpt",  # Use "rpt" to trigger the relational logic in ProtoNet
             true_classes=true_classes,
-            global_protos=global_protos,
-            lam1=lam1,
-            lam2=lam2,
-            method="ours",
-            temperature=temperature,
+            global_D=global_D,
+            obs_mask=obs_mask,
+            class_to_idx=class_to_idx,
+            lam1=lam,  # This is your regularization weight
         )
         return loss, acc, local_protos
+
+    def extract_distance_matrix(self):
+        """
+        New helper for your specific method:
+        Extracts the D-matrix and the list of classes to send to the server.
+        """
+        return self.model.get_local_distance_matrix(
+            self._get_full_dataloader(), self.device
+        )
 
 
 def min_samples_per_class(df: pd.DataFrame, min_required: int = None) -> int:

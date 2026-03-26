@@ -168,7 +168,7 @@ class ProtoNet(nn.Module):
                     total_loss += lam1 * loss_reg
 
         # ---- RPT: relational distance matrix consistency ----
-        elif method == "rpt":
+        elif method == "ours":
             loss_rel = self._relational_loss(
                 local_protos, true_classes, global_D, obs_mask, class_to_idx
             )
@@ -228,7 +228,7 @@ class ProtoNet(nn.Module):
         # Local pairwise distances for valid classes
         valid_protos = local_protos[valid_idx]
         local_D = torch.cdist(
-            valid_protos.unsqueeze(0), valid_protos.unsqueeze(0)
+            valid_protos.unsqueeze(0), valid_protos.unsqueeze(0), p=2
         ).squeeze(0)
 
         # Extract global submatrix
@@ -291,7 +291,9 @@ class ProtoNet(nn.Module):
             [torch.stack(class_features[cls]).mean(dim=0) for cls in classes]
         )
 
-        D = torch.cdist(prototypes.unsqueeze(0), prototypes.unsqueeze(0)).squeeze(0)
+        D = torch.cdist(prototypes.unsqueeze(0), prototypes.unsqueeze(0), p=2).squeeze(
+            0
+        )
         D_norm = D / (D.max() + 1e-8)
 
         self.train()

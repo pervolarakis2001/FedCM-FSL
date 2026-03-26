@@ -28,10 +28,7 @@ class FederatedFactory:
             server = FedCMFSLServer(
                 s2_clients=s2_clients,
                 s1_clients=s1_clients,
-                lam1=0.1,
-                lam2=0.05,
-                temperature=0.1,
-                bank_max_history=10,
+                lam=0.1,
             )
             return server, FedCMFSLClient, None
 
