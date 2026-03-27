@@ -66,6 +66,8 @@ class ProtoNet(nn.Module):
         self.encoder = encoder
         self.out_dim = feat_dim
         self.use_projection = use_projection
+        # Learnable temperature — prevents vanishing logits as norms shrink
+        self.temperature = nn.Parameter(torch.tensor(10.0))
 
         if use_projection:
             self.projection_head = nn.Sequential(
@@ -76,7 +78,7 @@ class ProtoNet(nn.Module):
             self.proj_dim = proj_dim
 
     def encode(self, x):
-        return self.encoder(x)
+        return F.normalize(self.encoder(x), p=2, dim=1)
 
     def project(self, features):
         """Map features to shared cross-modal space."""
@@ -92,14 +94,12 @@ class ProtoNet(nn.Module):
 
         # ||q - p||^2 = ||q||^2 - 2*q.p + ||p||^2
         # q_feat: (Q, D), prototypes: (N, D)
-        logits = (
-            -(
-                torch.sum(q_feat**2, dim=1, keepdim=True)  # (Q, 1)
-                - 2 * torch.mm(q_feat, prototypes.T)  # (Q, N)
-                + torch.sum(prototypes**2, dim=1, keepdim=True).T  # (1, N)
-            )
-            / self.out_dim
+        dists = (
+            torch.sum(q_feat**2, dim=1, keepdim=True)  # (Q, 1)
+            - 2 * torch.mm(q_feat, prototypes.T)  # (Q, N)
+            + torch.sum(prototypes**2, dim=1, keepdim=True).T  # (1, N)
         )
+        logits = -dists * self.temperature
 
         return logits, prototypes, s_feat
 
