@@ -330,8 +330,9 @@ class FedProtoProjServer(BaseServer):
 
 
 class FedCMFSLServer(BaseServer):
-    def __init__(self, s2_clients, s1_clients, fraction=1.0, lam=0.1):
+    def __init__(self, s2_clients, s1_clients, fraction=1.0, lam=0.1, metric="Euclidean"):
         super().__init__(s2_clients, s1_clients, fraction)
+        self.metric = metric
 
         # 1. Dynamically find ALL unique class IDs from all clients
         all_unique_classes = set()
@@ -367,8 +368,9 @@ class FedCMFSLServer(BaseServer):
                 obs_mask=self.obs_mask,
                 class_to_idx=self.class_to_idx,
                 lam=self.lam,
+                metric=self.metric,
             )
-            local_D, local_classes = client.extract_distance_matrix()
+            local_D, local_classes = client.extract_distance_matrix(metric=self.metric)
 
             updates.append((local_D, local_classes))
             losses.append(loss)

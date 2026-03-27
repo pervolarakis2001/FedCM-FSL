@@ -237,6 +237,7 @@ class FedCMFSLClient(BaseEpisodicClient):
         obs_mask=None,
         class_to_idx=None,
         lam=0.1,
+        metric="Euclidean",
         **kwargs,
     ):
         # We pass the geometric data (D matrix and mask) down to super().local_train
@@ -246,6 +247,7 @@ class FedCMFSLClient(BaseEpisodicClient):
             obs_mask=obs_mask,
             class_to_idx=class_to_idx,
             lam=lam,
+            metric=metric,
             **kwargs,
         )
 
@@ -260,6 +262,7 @@ class FedCMFSLClient(BaseEpisodicClient):
         obs_mask=None,
         class_to_idx=None,
         lam=0.1,
+        metric="Euclidean",
         **kwargs,
     ):
 
@@ -270,22 +273,22 @@ class FedCMFSLClient(BaseEpisodicClient):
             q_x,
             q_y,
             self.n_way,
-            method="rpt",  # Use "rpt" to trigger the relational logic in ProtoNet
+            method="ours",
             true_classes=true_classes,
             global_D=global_D,
             obs_mask=obs_mask,
             class_to_idx=class_to_idx,
-            lam1=lam,  # This is your regularization weight
+            lam1=lam,
+            metric=metric,
         )
         return loss, acc, local_protos
 
-    def extract_distance_matrix(self):
+    def extract_distance_matrix(self, metric="Euclidean"):
         """
-        New helper for your specific method:
         Extracts the D-matrix and the list of classes to send to the server.
         """
         return self.model.get_local_distance_matrix(
-            self._get_full_dataloader(), self.device
+            self._get_full_dataloader(), self.device, metric=metric
         )
 
 

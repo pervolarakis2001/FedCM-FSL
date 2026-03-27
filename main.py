@@ -115,6 +115,12 @@ def parse_args():
     )
 
     parser.add_argument(
+        "--metric",
+        choices=["Euclidean", "cosine"],
+        default="Euclidean",
+        help="Distance metric for FedCMFSL relational loss",
+    )
+    parser.add_argument(
         "--device",
         type=str,
         default=None,

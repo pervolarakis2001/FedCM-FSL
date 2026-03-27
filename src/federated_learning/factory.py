@@ -29,6 +29,7 @@ class FederatedFactory:
                 s2_clients=s2_clients,
                 s1_clients=s1_clients,
                 lam=0.1,
+                metric=getattr(args, "metric", "Euclidean"),
             )
             return server, FedCMFSLClient, None
 

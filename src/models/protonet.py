@@ -117,6 +117,7 @@ class ProtoNet(nn.Module):
         obs_mask=None,  # for rpt (KxK observation mask)
         class_to_idx=None,  # maps global class label -> row index in global_D
         lam1=0.1,
+        metric="Euclidean",
     ):
         """
         Local training for each method.
@@ -125,7 +126,7 @@ class ProtoNet(nn.Module):
             s_x, s_y: Support set images and episode-local labels (0..n_way-1).
             q_x, q_y: Query set images and episode-local labels.
             n_way: Number of classes in the current episode.
-            method: One of "base", "fed_proto", "fed_proto_proj", "rpt".
+            method: One of "base", "fed_proto", "fed_proto_proj", "ours".
             true_classes: Tensor of shape (n_way,) with global class indices.
             global_protos: Dict {global_class_id: prototype_tensor} from server.
             global_D: Tensor (K, K) global relational distance matrix from server.
@@ -170,7 +171,7 @@ class ProtoNet(nn.Module):
         # ---- RPT: relational distance matrix consistency ----
         elif method == "ours":
             loss_rel = self._relational_loss(
-                local_protos, true_classes, global_D, obs_mask, class_to_idx
+                local_protos, true_classes, global_D, obs_mask, class_to_idx, metric
             )
             if loss_rel is not None:
                 total_loss += lam1 * loss_rel
@@ -203,18 +204,19 @@ class ProtoNet(nn.Module):
         )
 
     def _relational_loss(
-        self, local_protos, true_classes, global_D, obs_mask, class_to_idx
+        self,
+        local_protos,
+        true_classes,
+        global_D,
+        obs_mask,
+        class_to_idx,
+        metric="Euclidean",
     ):
-        """
-        Compare local inter-class distance structure to global consensus.
-        Only computes loss over class pairs that have been observed globally.
-        """
         if global_D is None or class_to_idx is None:
             return None
 
-        # Find which episode classes exist in the global matrix
-        valid_idx = []  # index in local prototypes
-        global_idx = []  # index in global_D
+        valid_idx = []
+        global_idx = []
 
         for i, true_class in enumerate(true_classes):
             cls = true_class.item() if torch.is_tensor(true_class) else true_class
@@ -225,34 +227,39 @@ class ProtoNet(nn.Module):
         if len(valid_idx) < 2:
             return None
 
-        # Local pairwise distances for valid classes
         valid_protos = local_protos[valid_idx]
-        local_D = torch.cdist(
-            valid_protos.unsqueeze(0), valid_protos.unsqueeze(0), p=2
-        ).squeeze(0)
+        if metric == "Euclidean":
+            # Added ** 2 to match squared Euclidean distance used in logits
+            local_D = (
+                torch.cdist(
+                    valid_protos.unsqueeze(0), valid_protos.unsqueeze(0), p=2
+                ).squeeze(0)
+                ** 2
+            )
+        elif metric == "cosine":
+            sim = torch.nn.functional.cosine_similarity(
+                valid_protos.unsqueeze(1), valid_protos.unsqueeze(0), dim=-1
+            )
+            local_D = 1.0 - sim
 
-        # Extract global submatrix
         gi = torch.tensor(global_idx, device=local_protos.device, dtype=torch.long)
-        global_D_sub = global_D.to(local_protos.device)[gi][:, gi]
 
-        # Extract observation mask submatrix
+        global_D_sub = global_D.to(local_protos.device)[gi[:, None], gi]
+
         if obs_mask is not None:
-            mask_sub = obs_mask.to(local_protos.device)[gi][:, gi]
+            mask_sub = obs_mask.to(local_protos.device)[gi[:, None], gi]
         else:
             mask_sub = torch.ones_like(global_D_sub, dtype=torch.bool)
 
-        # Zero out diagonal in mask (self-distance is always 0, uninformative)
         mask_sub = mask_sub & ~torch.eye(
             len(gi), dtype=torch.bool, device=mask_sub.device
         )
 
-        # Normalize both matrices independently
         local_max = local_D.max() + 1e-8
         global_max = global_D_sub.max() + 1e-8
         local_D_norm = local_D / local_max
         global_D_norm = global_D_sub / global_max
 
-        # Masked MSE over observed off-diagonal pairs
         diff = (local_D_norm - global_D_norm) ** 2
         loss = (diff * mask_sub.float()).sum() / (mask_sub.float().sum() + 1e-8)
 
@@ -262,7 +269,7 @@ class ProtoNet(nn.Module):
     # Communication helpers (called between rounds, not during episodes)
     # ------------------------------------------------------------------
 
-    def get_local_distance_matrix(self, data_loader, device):
+    def get_local_distance_matrix(self, data_loader, device, metric="Euclidean"):
         """
         Compute prototypes for ALL local classes using full local data,
         then return the normalized pairwise distance matrix.
@@ -291,9 +298,11 @@ class ProtoNet(nn.Module):
             [torch.stack(class_features[cls]).mean(dim=0) for cls in classes]
         )
 
-        D = torch.cdist(prototypes.unsqueeze(0), prototypes.unsqueeze(0), p=2).squeeze(
-            0
-        )
+        if metric == "Euclidean":
+            D = torch.cdist(prototypes.unsqueeze(0), prototypes.unsqueeze(0), p=2).squeeze(0) ** 2
+        elif metric == "cosine":
+            sim = F.cosine_similarity(prototypes.unsqueeze(1), prototypes.unsqueeze(0), dim=-1)
+            D = 1.0 - sim
         D_norm = D / (D.max() + 1e-8)
 
         self.train()
