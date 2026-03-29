@@ -28,6 +28,7 @@ def _compute_analysis_metrics(server, s2_clients, s1_clients, device):
     margins = {"S2": 0, "S1": 0}
     norms = {"S2": 0, "S1": 0}
     rank_corr = {}
+    proj_corr = {}
     distance_matrices = {"S2": {}, "S1": {}}
     per_pair = {"S2": {}, "S1": {}}
 
@@ -38,6 +39,7 @@ def _compute_analysis_metrics(server, s2_clients, s1_clients, device):
         mod_margins = []
         mod_norms = []
         mod_rank_corrs = []
+        mod_proj_corrs = []
 
         for client in clients:
             loader = client._get_full_dataloader()
@@ -89,10 +91,30 @@ def _compute_analysis_metrics(server, s2_clients, s1_clients, device):
                         if not np.isnan(rho):
                             mod_rank_corrs.append(rho)
 
+            # Projection analysis: native vs projected distance structure
+            if hasattr(client.model, "use_projection") and client.model.use_projection:
+                proj_protos = client.model.get_projected_prototypes(loader, device)
+                proj_list = [proj_protos[c] for c in classes if c in proj_protos]
+                if len(proj_list) >= 2:
+                    proj_stack = torch.stack(proj_list)
+                    D_proj = torch.cdist(
+                        proj_stack.unsqueeze(0), proj_stack.unsqueeze(0)
+                    ).squeeze(0)
+                    n_proj = min(D.shape[0], D_proj.shape[0])
+                    idx = torch.triu_indices(n_proj, n_proj, offset=1)
+                    native_vals = D[:n_proj, :n_proj][idx[0], idx[1]].cpu().numpy()
+                    proj_vals = D_proj[idx[0], idx[1]].detach().cpu().numpy()
+                    if len(native_vals) > 1:
+                        rho, _ = spearmanr(native_vals, proj_vals)
+                        if not np.isnan(rho):
+                            mod_proj_corrs.append(rho)
+
         margins[modality] = np.mean(mod_margins) if mod_margins else 0
         norms[modality] = np.mean(mod_norms) if mod_norms else 0
         if mod_rank_corrs:
             rank_corr[modality] = np.mean(mod_rank_corrs)
+        if mod_proj_corrs:
+            proj_corr[modality] = np.mean(mod_proj_corrs)
 
     # Add global D snapshot if available
     if hasattr(server, "global_D") and server.global_D is not None:
@@ -100,28 +122,12 @@ def _compute_analysis_metrics(server, s2_clients, s1_clients, device):
             "D": server.global_D.cpu().clone(),
             "class_to_idx": dict(server.class_to_idx),
         }
-    # for projection method only
-    if hasattr(client.model, "use_projection") and client.model.use_projection:
-        # Rank correlation between native distance matrix
-        # and projected distance matrix
-        proj_protos = client.model.get_projected_prototypes(loader, device)
-        proj_list = [proj_protos[c] for c in classes if c in proj_protos]
-        if len(proj_list) >= 2:
-            proj_stack = torch.stack(proj_list)
-            D_proj = torch.cdist(
-                proj_stack.unsqueeze(0), proj_stack.unsqueeze(0)
-            ).squeeze(0)
-            # Compare structure: native vs projected
-            n = min(D.shape[0], D_proj.shape[0])
-            idx = torch.triu_indices(n, n, offset=1)
-            native_vals = D[:n, :n][idx[0], idx[1]].numpy()
-            proj_vals = D_proj[idx[0], idx[1]].detach().numpy()
-            rho, _ = spearmanr(native_vals, proj_vals)
 
     return {
         "margins": margins,
         "norms": norms,
         "rank_corr": rank_corr,
+        "proj_corr": proj_corr,
         "distance_matrices": distance_matrices,
         "per_pair": per_pair,
     }
@@ -211,10 +217,10 @@ def _load_client_states(
 
     for c in s2_clients:
         if c.client_id in state.get("s2_client_states", {}):
-            c.model.load_state_dict(state["s2_client_states"][c.client_id])
+            c.model.load_state_dict(state["s2_client_states"][c.client_id], strict=False)
     for c in s1_clients:
         if c.client_id in state.get("s1_client_states", {}):
-            c.model.load_state_dict(state["s1_client_states"][c.client_id])
+            c.model.load_state_dict(state["s1_client_states"][c.client_id], strict=False)
 
     if "global_protos" in state and hasattr(server, "global_protos"):
         server.global_protos = state["global_protos"]
